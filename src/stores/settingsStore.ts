@@ -24,6 +24,7 @@ interface SettingsState {
   showSettings: boolean;
   setSettings: (settings: ProviderSettings[]) => void;
   addSetting: (setting: ProviderSettings) => void;
+  updateSetting: (id: string, setting: ProviderSettings) => void;
   toggleSettings: () => void;
 }
 
@@ -33,6 +34,10 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   setSettings: (settings) => set({ settings }),
   addSetting: (setting) =>
     set((state) => ({ settings: [...state.settings, setting] })),
+  updateSetting: (id, updated) =>
+    set((state) => ({
+      settings: state.settings.map((s) => (s.id === id ? updated : s)),
+    })),
   toggleSettings: () =>
     set((state) => ({ showSettings: !state.showSettings })),
 }));

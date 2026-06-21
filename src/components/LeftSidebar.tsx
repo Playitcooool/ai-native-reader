@@ -117,7 +117,11 @@ export default function LeftSidebar() {
                       <div style={{ fontSize: 12 }}>{ann.note_text}</div>
                     )}
                     <button
-                      onClick={() => deleteAnnotation(ann.id)}
+                      onClick={() => {
+                        if (window.confirm("Delete this note?")) {
+                          deleteAnnotation(ann.id);
+                        }
+                      }}
                       style={{
                         marginTop: 4, padding: "2px 6px", background: "transparent",
                         color: "var(--danger-color)", border: "1px solid var(--danger-color)",

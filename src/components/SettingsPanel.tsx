@@ -1,16 +1,29 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useSettingsStore, type ProviderSettingsInput } from "../stores/settingsStore";
 
 export default function SettingsPanel() {
-  const { settings, addSetting } = useSettingsStore();
-  const [baseUrl, setBaseUrl] = useState("https://api.openai.com/v1");
+  const { settings, addSetting, updateSetting } = useSettingsStore();
+  const [baseUrl, setBaseUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
-  const [model, setModel] = useState("gpt-4o-mini");
+  const [model, setModel] = useState("");
   const [providerType, setProviderType] = useState("openai_compatible");
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [status, setStatus] = useState<{ ok: boolean; msg: string } | null>(null);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
+
+  // Populate form from saved settings
+  useEffect(() => {
+    if (settings.length > 0) {
+      const s = settings[0];
+      setBaseUrl(s.base_url ?? "");
+      setApiKey(s.api_key ?? "");
+      setModel(s.model);
+      setProviderType(s.provider_type);
+      setEditingId(s.id);
+    }
+  }, [settings]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -18,7 +31,7 @@ export default function SettingsPanel() {
     try {
       const input: ProviderSettingsInput = {
         provider_type: providerType,
-        base_url: baseUrl,
+        base_url: baseUrl || undefined,
         api_key: apiKey || undefined,
         model,
         is_default: settings.length === 0,
@@ -28,7 +41,13 @@ export default function SettingsPanel() {
         api_key: string | null; model: string; is_default: boolean | null;
         created_at: string; updated_at: string;
       }>("save_provider_settings", { input });
-      addSetting(result);
+
+      if (editingId) {
+        updateSetting(editingId, result);
+      } else {
+        addSetting(result);
+      }
+      setEditingId(result.id);
       setStatus({ ok: true, msg: "Settings saved." });
     } catch (err) {
       setStatus({ ok: false, msg: `Error: ${err}` });
@@ -55,6 +74,17 @@ export default function SettingsPanel() {
     } finally {
       setTesting(false);
     }
+  };
+
+  const selectProvider = (id: string) => {
+    const s = settings.find((p) => p.id === id);
+    if (!s) return;
+    setBaseUrl(s.base_url ?? "");
+    setApiKey(s.api_key ?? "");
+    setModel(s.model);
+    setProviderType(s.provider_type);
+    setEditingId(s.id);
+    setStatus(null);
   };
 
   return (
@@ -101,11 +131,24 @@ export default function SettingsPanel() {
         <div style={{ marginTop: 8 }}>
           <p style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Saved Providers</p>
           {settings.map((s) => (
-            <div key={s.id} style={{ fontSize: 12, padding: "8px", background: "var(--bg-tertiary)", borderRadius: 4, marginBottom: 4 }}>
+            <div
+              key={s.id}
+              onClick={() => selectProvider(s.id)}
+              style={{
+                fontSize: 12, padding: "8px", background: editingId === s.id ? "var(--accent-color)" : "var(--bg-tertiary)",
+                borderRadius: 4, marginBottom: 4, cursor: "pointer",
+                color: editingId === s.id ? "#fff" : "inherit",
+              }}
+            >
               <div style={{ fontWeight: 500 }}>{s.model}</div>
-              <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{s.base_url ?? "N/A"}</div>
-              <button onClick={() => handleTest(s.id)} disabled={testing}
-                style={{ marginTop: 4, padding: "3px 8px", background: "transparent", color: "var(--accent-color)", border: "1px solid var(--accent-color)", borderRadius: 3, fontSize: 11, cursor: "pointer" }}>
+              <div style={{ fontSize: 11, opacity: 0.8 }}>{s.base_url ?? "N/A"}</div>
+              <button onClick={(e) => { e.stopPropagation(); handleTest(s.id); }} disabled={testing}
+                style={{
+                  marginTop: 4, padding: "3px 8px", background: "transparent",
+                  color: editingId === s.id ? "#fff" : "var(--accent-color)",
+                  border: `1px solid ${editingId === s.id ? "#fff" : "var(--accent-color)"}`,
+                  borderRadius: 3, fontSize: 11, cursor: "pointer",
+                }}>
                 {testing ? "Testing..." : "Test Connection"}
               </button>
             </div>
