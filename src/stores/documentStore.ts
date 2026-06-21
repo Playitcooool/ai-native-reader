@@ -37,6 +37,7 @@ interface DocumentState {
   loadDocuments: () => Promise<void>;
   loadToc: (documentId: string) => Promise<void>;
   handleOpenPdf: () => Promise<void>;
+  scrollToPage: (page: number) => void;
 }
 
 export const useDocumentStore = create<DocumentState>((set, get) => ({
@@ -59,6 +60,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
   setZoom: (zoom) => set({ zoom: Math.max(0.25, Math.min(4.0, zoom)) }),
   setTocNodes: (nodes) => set({ tocNodes: nodes }),
   setActiveTocNodeId: (id) => set({ activeTocNodeId: id }),
+  scrollToPage: (page) => set({ currentPage: page }),
   loadDocuments: async () => {
     try {
       const docs = await invoke<Document[]>("get_documents");

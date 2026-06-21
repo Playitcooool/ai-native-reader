@@ -15,9 +15,11 @@ interface PdfTextLayerProps {
   page: PDFPageProxy;
   scale: number;
   onSelection: (text: string, anchor: { pageNumber: number; selectedText: string; prefix?: string; suffix?: string }) => void;
+  containerWidth?: number;
+  containerHeight?: number;
 }
 
-export default function PdfTextLayer({ page, scale, onSelection }: PdfTextLayerProps) {
+export default function PdfTextLayer({ page, scale, onSelection, containerWidth, containerHeight }: PdfTextLayerProps) {
   const layerRef = useRef<HTMLDivElement>(null);
   const [spans, setSpans] = useState<TextSpan[]>([]);
 
@@ -83,8 +85,8 @@ export default function PdfTextLayer({ page, scale, onSelection }: PdfTextLayerP
         position: "absolute",
         top: 0,
         left: 0,
-        right: 0,
-        bottom: 0,
+        width: containerWidth ?? "100%",
+        height: containerHeight ?? "100%",
         userSelect: "text",
         color: "transparent",
         pointerEvents: "auto",

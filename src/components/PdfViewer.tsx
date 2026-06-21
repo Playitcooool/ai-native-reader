@@ -1,14 +1,15 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import * as pdfjsLib from "pdfjs-dist";
-import { PDFDocumentProxy, PDFPageProxy } from "pdfjs-dist";
+import { PDFDocumentProxy } from "pdfjs-dist";
 import "../pdfjs";
 import { useDocumentStore } from "../stores/documentStore";
 import { useAiStore } from "../stores/aiStore";
 import { invoke } from "@tauri-apps/api/core";
 import { extractToc, type TocNodeInput } from "../features/toc/tocTree";
 import { PageExtractionQueue } from "../features/pdf/pdfTextExtraction";
-import PdfTextLayer from "../features/pdf/PdfTextLayer";
 import SelectionMenu from "../features/pdf/SelectionMenu";
+import PageView from "../features/pdf/PageView";
+import { useVisibleRange } from "../features/pdf/useVisibleRange";
 
 interface PdfViewerProps {
   filePath: string;
@@ -16,13 +17,15 @@ interface PdfViewerProps {
 }
 
 export default function PdfViewer({ filePath, documentId }: PdfViewerProps) {
-  const viewerRef = useRef<HTMLDivElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
-  const [pageProxy, setPageProxy] = useState<PDFPageProxy | null>(null);
   const [selectionText, setSelectionText] = useState("");
   const [selectionPos, setSelectionPos] = useState<{ x: number; y: number } | null>(null);
   const [selectionAnchor, setSelectionAnchor] = useState<any>(null);
+  const [pageCount, setPageCount] = useState(0);
+  const [basePageHeight, setBasePageHeight] = useState(0);
+  const [basePageWidth, setBasePageWidth] = useState(0);
+  const [pageHeights, setPageHeights] = useState<number[]>([]);
   const {
     currentPage,
     zoom,
@@ -33,54 +36,81 @@ export default function PdfViewer({ filePath, documentId }: PdfViewerProps) {
     tocNodes,
     loadToc,
     currentDocument,
+    scrollToPage,
   } = useDocumentStore();
   const runWorkflow = useAiStore((s) => s.runWorkflow);
   const pdfRef = useRef<PDFDocumentProxy | null>(null);
-  const renderTaskRef = useRef<any>(null);
   const extractionRef = useRef<PageExtractionQueue | null>(null);
+  const progScrollRef = useRef(false);
+  const pageDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const zoomAnchorRef = useRef<{ oldScrollTop: number; oldZoom: number } | null>(null);
 
-  const renderPage = useCallback(
-    async (pdf: PDFDocumentProxy, pageNum: number, scale: number) => {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      setError(null);
-      setPageProxy(null);
-      if (renderTaskRef.current) {
-        try { renderTaskRef.current.cancel(); } catch {}
-        renderTaskRef.current = null;
-      }
-      try {
-        const page: PDFPageProxy = await pdf.getPage(pageNum);
-        const dpr = window.devicePixelRatio || 1;
-        const viewport = page.getViewport({ scale: scale * dpr });
-        canvas.width = viewport.width;
-        canvas.height = viewport.height;
-        canvas.style.width = `${viewport.width / dpr}px`;
-        canvas.style.height = `${viewport.height / dpr}px`;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) return;
-        const renderTask = page.render({
-          canvasContext: ctx,
-          viewport,
-        });
-        renderTaskRef.current = renderTask;
-        await renderTask.promise;
-        if (renderTaskRef.current !== renderTask) return;
-        setPageProxy(page);
-      } catch (err: any) {
-        if (err?.name === "RenderingCancelledException") return;
-        setError(`Failed to render page ${pageNum}`);
-      }
-    },
-    [],
+  // Compute page heights from base viewport and zoom
+  const pageHeightAtZoom = basePageHeight * zoom;
+  const pageWidthAtZoom = basePageWidth * zoom;
+  const heights = useMemo(
+    () => pageHeights.map((h) => h * zoom),
+    [pageHeights, zoom],
   );
+
+  // Visible range from virtual scroll
+  const { visibleRange, totalHeight } = useVisibleRange({
+    pageCount,
+    pageHeights: heights,
+    bufferPages: 2,
+    scrollContainerRef: scrollRef as React.RefObject<HTMLElement | null>,
+  });
+
+  // Derive current page from scroll position — debounced to store
+  useEffect(() => {
+    const container = scrollRef.current;
+    if (!container || heights.length === 0) return;
+    const center = container.scrollTop + container.clientHeight / 2;
+    let acc = 0;
+    for (let i = 0; i < heights.length; i++) {
+      acc += heights[i];
+      if (center < acc) {
+        const page = i + 1;
+        if (page !== currentPage && !progScrollRef.current) {
+          if (pageDebounceRef.current) clearTimeout(pageDebounceRef.current);
+          pageDebounceRef.current = setTimeout(() => {
+            setCurrentPage(page);
+          }, 150);
+        }
+        break;
+      }
+    }
+  }, [visibleRange, heights, currentPage, setCurrentPage]);
+
+  // Dispose debounce on unmount
+  useEffect(() => {
+    return () => {
+      if (pageDebounceRef.current) clearTimeout(pageDebounceRef.current);
+    };
+  }, []);
+
+  // Programmatic scroll (TOC, citations, keyboard arrows)
+  useEffect(() => {
+    if (!currentDocument || heights.length === 0) return;
+    const container = scrollRef.current;
+    if (!container) return;
+    progScrollRef.current = true;
+    let acc = 0;
+    for (let i = 0; i < currentPage - 1 && i < heights.length; i++) {
+      acc += heights[i];
+    }
+    container.scrollTop = acc;
+    requestAnimationFrame(() => {
+      progScrollRef.current = false;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPage]);
 
   // Load PDF
   useEffect(() => {
     let destroyed = false;
     const loadPdf = async () => {
       try {
-        // Read PDF via Rust command to avoid asset protocol issues
         const b64 = await invoke<string>("read_file_bytes", { filePath });
         const binary = atob(b64);
         const bytes = new Uint8Array(binary.length);
@@ -89,7 +119,16 @@ export default function PdfViewer({ filePath, documentId }: PdfViewerProps) {
         if (destroyed) { pdf.destroy(); return; }
         pdfRef.current = pdf;
         setTotalPages(pdf.numPages);
+        setPageCount(pdf.numPages);
         invoke("update_page_count", { documentId, pageCount: pdf.numPages }).catch(() => {});
+
+        // Get page 1 viewport for base dimensions
+        const p1 = await pdf.getPage(1);
+        const vp = p1.getViewport({ scale: 1 });
+        setBasePageHeight(vp.height);
+        setBasePageWidth(vp.width);
+        setPageHeights(new Array(pdf.numPages).fill(vp.height));
+        p1.cleanup();
 
         const tocInput = await extractToc(pdf, pdf.numPages);
         if (destroyed) return;
@@ -113,30 +152,20 @@ export default function PdfViewer({ filePath, documentId }: PdfViewerProps) {
     loadPdf();
     return () => {
       destroyed = true;
-      renderTaskRef.current?.cancel();
       extractionRef.current?.destroy();
       pdfRef.current?.destroy();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filePath]);
 
-  // Re-render
+  // Update extraction priority when visible range changes
   useEffect(() => {
-    const pdf = pdfRef.current;
-    if (pdf && currentPage >= 1 && currentPage <= pdf.numPages) {
-      renderPage(pdf, currentPage, zoom);
+    if (extractionRef.current && pageCount > 0) {
+      extractionRef.current.setCurrentPage(currentPage, pageCount);
     }
-  }, [currentPage, zoom, renderPage]);
+  }, [currentPage, pageCount]);
 
-  // Update extraction priority
-  useEffect(() => {
-    const pdf = pdfRef.current;
-    if (extractionRef.current && pdf) {
-      extractionRef.current.setCurrentPage(currentPage, pdf.numPages);
-    }
-  }, [currentPage]);
-
-  // Active TOC node
+  // Active TOC node — derive from currentPage
   useEffect(() => {
     if (tocNodes.length === 0 || currentPage < 1) {
       setActiveTocNodeId(null);
@@ -151,7 +180,7 @@ export default function PdfViewer({ filePath, documentId }: PdfViewerProps) {
     setActiveTocNodeId(best?.id ?? null);
   }, [currentPage, tocNodes, setActiveTocNodeId]);
 
-  // Handle text selection
+  // Text selection
   const handleTextSelection = useCallback(
     (text: string, anchor: any) => {
       setSelectionText(text);
@@ -188,39 +217,45 @@ export default function PdfViewer({ filePath, documentId }: PdfViewerProps) {
     });
   }, [currentDocument, selectionText, currentPage, runWorkflow, clearSelection]);
 
-  // Navigation
+  // Scroll to page (used by keyboard nav)
   const goToPage = useCallback(
     (page: number) => {
       const pdf = pdfRef.current;
       if (!pdf) return;
       const p = Math.max(1, Math.min(pdf.numPages, page));
       if (p !== currentPage) {
-        setCurrentPage(p);
+        scrollToPage(p);
         clearSelection();
         invoke("update_last_page", { documentId, pageNumber: p }).catch(() => {});
       }
     },
-    [currentPage, documentId, setCurrentPage, clearSelection],
+    [currentPage, documentId, scrollToPage, clearSelection],
   );
 
-  const handleWheel = useCallback(
-    (e: React.WheelEvent) => {
-      if (e.deltaY > 0) goToPage(currentPage + 1);
-      else goToPage(currentPage - 1);
+  // Zoom with scroll-position preservation
+  const handleSetZoom = useCallback(
+    (newZoom: number) => {
+      const clamped = Math.max(0.25, Math.min(4.0, newZoom));
+      const container = scrollRef.current;
+      if (container) {
+        zoomAnchorRef.current = { oldScrollTop: container.scrollTop, oldZoom: zoom };
+      }
+      setZoom(clamped);
     },
-    [currentPage, goToPage],
+    [zoom, setZoom],
   );
 
   // Keyboard shortcuts
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
+      // Let system shortcuts (Cmd+C/V/A, etc.) pass through
+      if (e.metaKey || e.ctrlKey) return;
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
       if (e.key === "ArrowLeft" || e.key === "PageUp") { e.preventDefault(); goToPage(currentPage - 1); }
       if (e.key === "ArrowRight" || e.key === "PageDown") { e.preventDefault(); goToPage(currentPage + 1); }
-      if (e.key === "+" || e.key === "=") { e.preventDefault(); setZoom(zoom + 0.25); }
-      if (e.key === "-") { e.preventDefault(); setZoom(zoom - 0.25); }
-      if (e.key === "0") { e.preventDefault(); setZoom(1.0); }
-      // 'E' for Explain
+      if (e.key === "+" || e.key === "=") { e.preventDefault(); handleSetZoom(zoom + 0.25); }
+      if (e.key === "-") { e.preventDefault(); handleSetZoom(zoom - 0.25); }
+      if (e.key === "0") { e.preventDefault(); handleSetZoom(1.0); }
       if ((e.key === "e" || e.key === "E") && selectionText) {
         e.preventDefault();
         handleExplain();
@@ -229,7 +264,7 @@ export default function PdfViewer({ filePath, documentId }: PdfViewerProps) {
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [currentPage, zoom, goToPage, setZoom, clearSelection, selectionText, handleExplain]);
+  }, [currentPage, zoom, goToPage, handleSetZoom, clearSelection, selectionText, handleExplain]);
 
   // Debounced zoom persistence
   useEffect(() => {
@@ -239,8 +274,31 @@ export default function PdfViewer({ filePath, documentId }: PdfViewerProps) {
     return () => clearTimeout(timer);
   }, [zoom, documentId]);
 
+  // Preserve scroll position on zoom change
+  useLayoutEffect(() => {
+    const anchor = zoomAnchorRef.current;
+    if (anchor && anchor.oldZoom !== zoom && heights.length > 0) {
+      const ratio = zoom / anchor.oldZoom;
+      const container = scrollRef.current;
+      if (container) {
+        container.scrollTop = anchor.oldScrollTop * ratio;
+      }
+      zoomAnchorRef.current = null;
+    }
+  }, [zoom, heights]);
+
+  // Build visible page list
+  const pageNumbers = useMemo(() => {
+    const nums: number[] = [];
+    for (let i = visibleRange[0]; i <= visibleRange[1]; i++) {
+      nums.push(i + 1); // 1-based page numbers
+    }
+    return nums;
+  }, [visibleRange]);
+
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", width: "100%" }}>
+      {/* Toolbar */}
       <div
         style={{
           display: "flex", alignItems: "center", gap: 8, padding: "6px 12px",
@@ -256,45 +314,64 @@ export default function PdfViewer({ filePath, documentId }: PdfViewerProps) {
         <span>
           Page{" "}
           <input
-            type="number" value={currentPage} min={1} max={pdfRef.current?.numPages ?? 1}
+            type="number" value={currentPage} min={1} max={pageCount || 1}
             onChange={(e) => goToPage(Number(e.target.value))}
             style={{ width: 50, textAlign: "center", padding: "2px 4px", border: "1px solid var(--border-color)", borderRadius: 3 }}
           />{" "}
-          / {pdfRef.current?.numPages ?? "?"}
+          / {pageCount || "?"}
         </span>
-        <button onClick={() => goToPage(currentPage + 1)} disabled={!pdfRef.current || currentPage >= pdfRef.current.numPages}>Next ▶</button>
+        <button onClick={() => goToPage(currentPage + 1)} disabled={!pdfRef.current || currentPage >= pageCount}>Next ▶</button>
         <span style={{ flex: 1 }} />
-        <button onClick={() => setZoom(zoom - 0.25)} disabled={zoom <= 0.25}>−</button>
+        <button onClick={() => handleSetZoom(zoom - 0.25)} disabled={zoom <= 0.25}>−</button>
         <span>{Math.round(zoom * 100)}%</span>
-        <button onClick={() => setZoom(zoom + 0.25)} disabled={zoom >= 4.0}>+</button>
-        <button onClick={() => setZoom(1.0)}>Reset</button>
+        <button onClick={() => handleSetZoom(zoom + 0.25)} disabled={zoom >= 4.0}>+</button>
+        <button onClick={() => handleSetZoom(1.0)}>Reset</button>
       </div>
 
+      {/* Scroll container */}
       <div
-        ref={viewerRef}
-        onWheel={handleWheel}
+        ref={scrollRef}
         style={{
-          flex: 1, display: "flex", flexDirection: "column", alignItems: "center",
-          overflow: "auto", padding: 16, position: "relative",
+          flex: 1,
+          overflowY: "auto",
+          overflowX: "hidden",
+          position: "relative",
+          background: "var(--bg-tertiary)",
         }}
       >
         {error ? (
           <div style={{ padding: 24, textAlign: "center" }}>
             <p style={{ color: "var(--danger-color)", marginBottom: 8 }}>{error}</p>
           </div>
+        ) : pageCount === 0 ? (
+          <div style={{ padding: 24, textAlign: "center", color: "var(--text-muted)" }}>
+            Loading PDF...
+          </div>
         ) : (
-          <div style={{ position: "relative", userSelect: "none" }}>
-            <canvas
-              ref={canvasRef}
-              style={{ boxShadow: "0 2px 8px rgba(0,0,0,0.15)", background: "#fff", display: "block" }}
-            />
-            {pageProxy && (
-              <PdfTextLayer page={pageProxy} scale={zoom} onSelection={handleTextSelection} />
-            )}
+          <div style={{ height: totalHeight, position: "relative", width: "100%" }}>
+            {pageNumbers.map((pageNum) => {
+              const idx = pageNum - 1;
+              const top = idx > 0
+                ? heights.slice(0, idx).reduce((a, b) => a + b, 0)
+                : 0;
+              return (
+                <PageView
+                  key={pageNum}
+                  pageNum={pageNum}
+                  pdf={pdfRef.current!}
+                  zoom={zoom}
+                  top={top}
+                  width={pageWidthAtZoom}
+                  height={pageHeightAtZoom}
+                  onSelection={handleTextSelection}
+                />
+              );
+            })}
           </div>
         )}
       </div>
 
+      {/* Selection menu */}
       {selectionText && (
         <SelectionMenu
           selectedText={selectionText}
