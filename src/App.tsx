@@ -62,6 +62,8 @@ function App() {
   // Draggable splitters — write to DOM directly during drag for zero-lag resize
   const [leftWidth, setLeftWidth] = useState(280);
   const [rightWidth, setRightWidth] = useState(340);
+  const [leftCollapsed, setLeftCollapsed] = useState(false);
+  const [rightCollapsed, setRightCollapsed] = useState(false);
   const leftRef = useRef<HTMLDivElement>(null);
   const rightRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ side: "left" | "right"; startX: number; startSize: number } | null>(null);
@@ -109,16 +111,30 @@ function App() {
   return (
     <ToastProvider>
       <div className="app-layout">
-        <div ref={leftRef} className="sidebar-left" style={{ width: leftWidth, flex: "none" }}>
-          <LeftSidebar />
+        <div
+          ref={leftRef}
+          className={`sidebar-left${leftCollapsed ? " collapsed" : ""}`}
+          style={{ width: leftCollapsed ? 36 : leftWidth, flex: "none" }}
+        >
+          <button className="collapse-btn collapse-left" onClick={() => setLeftCollapsed(!leftCollapsed)}>
+            {leftCollapsed ? "▶" : "◀"}
+          </button>
+          {!leftCollapsed && <LeftSidebar />}
         </div>
-        <div className="splitter" onMouseDown={(e) => startResize("left", e)} />
+        {!leftCollapsed && <div className="splitter" onMouseDown={(e) => startResize("left", e)} />}
         <div className="center-viewer">
           <CenterViewer />
         </div>
-        <div className="splitter" onMouseDown={(e) => startResize("right", e)} />
-        <div ref={rightRef} className="sidebar-right" style={{ width: rightWidth, flex: "none" }}>
-          <AiSidebar />
+        {!rightCollapsed && <div className="splitter" onMouseDown={(e) => startResize("right", e)} />}
+        <div
+          ref={rightRef}
+          className={`sidebar-right${rightCollapsed ? " collapsed" : ""}`}
+          style={{ width: rightCollapsed ? 36 : rightWidth, flex: "none" }}
+        >
+          <button className="collapse-btn collapse-right" onClick={() => setRightCollapsed(!rightCollapsed)}>
+            {rightCollapsed ? "◀" : "▶"}
+          </button>
+          {!rightCollapsed && <AiSidebar />}
         </div>
       </div>
     </ToastProvider>
