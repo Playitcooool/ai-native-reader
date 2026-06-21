@@ -38,8 +38,8 @@ export default function PdfTextLayer({ page, scale, onSelection }: PdfTextLayerP
               x: tx[4] * scale,
               y: viewport.height - tx[5] * scale,
               width: item.width * scale,
-              height: (item.height || 0) * scale,
-              fontSize: item.height || 12,
+              height: (item.height || 12) * scale,
+              fontSize: (item.height || 12) * scale,
             };
           });
         if (!cancelled) setSpans(textSpans);
@@ -55,10 +55,12 @@ export default function PdfTextLayer({ page, scale, onSelection }: PdfTextLayerP
     const sel = window.getSelection();
     if (!sel || sel.isCollapsed || !sel.toString().trim()) return;
 
-    // Wait for selection to settle, then get text + anchor
-    setTimeout(() => {
-      const text = sel.toString().trim();
-      if (!text) return;
+    const text = sel.toString().trim();
+    if (!text) return;
+
+    // Use a range-based approach that's more robust than setTimeout
+    try {
+      if (sel.rangeCount === 0) return;
       const range = sel.getRangeAt(0);
       const prefix = getContextText(range, 'before');
       const suffix = getContextText(range, 'after');
@@ -68,7 +70,9 @@ export default function PdfTextLayer({ page, scale, onSelection }: PdfTextLayerP
         prefix: prefix || undefined,
         suffix: suffix || undefined,
       });
-    }, 10);
+    } catch {
+      // Selection may have changed between check and access
+    }
   };
 
   return (
@@ -94,10 +98,11 @@ export default function PdfTextLayer({ page, scale, onSelection }: PdfTextLayerP
           style={{
             position: "absolute",
             left: s.x,
-            top: s.y - s.height * 0.15,
-            fontSize: s.fontSize * 0.85,
+            top: s.y - s.height,
+            fontSize: s.fontSize,
             whiteSpace: "pre",
             pointerEvents: "none",
+            lineHeight: 1,
           }}
         >
           {s.text}
@@ -108,18 +113,22 @@ export default function PdfTextLayer({ page, scale, onSelection }: PdfTextLayerP
 }
 
 function getContextText(range: Range, dir: 'before' | 'after'): string {
-  if (dir === 'before') {
-    const clone = range.cloneRange();
-    clone.collapse(true);
-    clone.setStart(clone.startContainer, 0);
-    return clone.toString().slice(-80).trim();
-  } else {
-    const clone = range.cloneRange();
-    clone.collapse(false);
-    const end = clone.endContainer;
-    if (end.textContent) {
-      clone.setEnd(end, end.textContent.length);
+  try {
+    if (dir === 'before') {
+      const clone = range.cloneRange();
+      clone.collapse(true);
+      clone.setStart(clone.startContainer, 0);
+      return clone.toString().slice(-80).trim();
+    } else {
+      const clone = range.cloneRange();
+      clone.collapse(false);
+      const end = clone.endContainer;
+      if (end.textContent) {
+        clone.setEnd(end, end.textContent.length);
+      }
+      return clone.toString().slice(0, 80).trim();
     }
-    return clone.toString().slice(0, 80).trim();
+  } catch {
+    return "";
   }
 }
