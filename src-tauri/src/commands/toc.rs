@@ -13,6 +13,8 @@ pub struct TocNodeInput {
     pub order_index: i64,
     pub start_page: i64,
     pub end_page: Option<i64>,
+    /// Temporary client-side ID like "toc_1". The backend maps this to UUIDs.
+    pub temp_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -47,22 +49,39 @@ pub fn save_toc_nodes(
     )
     .map_err(|e| e.to_string())?;
 
+    // Two-pass insert: first generate UUIDs and build temp_id→UUID map,
+    // then insert with resolved parent references to avoid FK violations.
+    let mut id_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    let mut enriched: Vec<(String, TocNodeInput)> = Vec::new();
+
+    for node in &nodes {
+        let uuid = Uuid::new_v4().to_string();
+        if let Some(ref tid) = node.temp_id {
+            id_map.insert(tid.clone(), uuid.clone());
+        }
+        enriched.push((uuid, node.clone()));
+    }
+
     let mut saved = Vec::new();
-    for node in nodes {
-        let id = Uuid::new_v4().to_string();
+    for (uuid, node) in &enriched {
+        // Resolve parent_id: if it looks like a temp ID, map to UUID
+        let resolved_parent = node.parent_id.as_ref().and_then(|pid| {
+            if pid.starts_with("toc_") { id_map.get(pid).cloned() } else { Some(pid.clone()) }
+        });
+
         conn.execute(
             "INSERT INTO toc_nodes (id, document_id, parent_id, title, level, order_index, start_page, end_page, source, confidence, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'native_outline', 1.0, ?9, ?10)",
-            rusqlite::params![id, document_id, node.parent_id, node.title, node.level,
+            rusqlite::params![uuid, document_id, resolved_parent, node.title, node.level,
                 node.order_index, node.start_page, node.end_page, now, now],
         )
         .map_err(|e| e.to_string())?;
 
         saved.push(TocNode {
-            id,
+            id: uuid.clone(),
             document_id: document_id.clone(),
-            parent_id: node.parent_id,
-            title: node.title,
+            parent_id: resolved_parent,
+            title: node.title.clone(),
             level: node.level,
             order_index: node.order_index,
             start_page: node.start_page,

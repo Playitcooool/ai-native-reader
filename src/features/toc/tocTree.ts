@@ -7,6 +7,7 @@ export interface TocNodeInput {
   order_index: number;
   start_page: number;
   end_page: number | null;
+  temp_id?: string; // client-side ID for parent reference resolution
 }
 
 interface OutlineItem {
@@ -53,6 +54,7 @@ async function flattenOutline(
 
     const nodeId = `toc_${orderCounter.value}`;
     nodes.push({
+      temp_id: nodeId,
       parent_id: parentId,
       title: item.title,
       level,
