@@ -1,11 +1,38 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { save } from "@tauri-apps/plugin-dialog";
+import { writeTextFile } from "@tauri-apps/plugin-fs";
 import SettingsPanel from "./SettingsPanel";
 import { useDocumentStore } from "../stores/documentStore";
 import { useNotesStore } from "../stores/notesStore";
+import type { Annotation } from "../stores/notesStore";
 import TocSidebar from "../features/toc/TocSidebar";
 
 type Tab = "toc" | "notes" | "recent" | "settings";
+
+// Format annotations as Markdown for export
+function annotationsToMarkdown(annotations: Annotation[], docTitle: string | null): string {
+  let md = `# Notes${docTitle ? ` — ${docTitle}` : ""}\n\n`;
+  const byPage = new Map<number, typeof annotations>();
+  for (const a of annotations) {
+    const list = byPage.get(a.page_number) ?? [];
+    list.push(a);
+    byPage.set(a.page_number, list);
+  }
+  const sortedPages = Array.from(byPage.keys()).sort((a, b) => a - b);
+  for (const page of sortedPages) {
+    md += `## Page ${page}\n\n`;
+    for (const a of byPage.get(page)!) {
+      if (a.selected_text) {
+        md += `> ${a.selected_text}\n\n`;
+      }
+      if (a.note_text) {
+        md += `${a.note_text}\n\n`;
+      }
+    }
+  }
+  return md;
+}
 
 export default function LeftSidebar() {
   const [activeTab, setActiveTab] = useState<Tab>("recent");
@@ -39,6 +66,22 @@ export default function LeftSidebar() {
     if (doc) {
       setCurrentPage(page);
       invoke("update_last_page", { documentId: doc.id, pageNumber: page }).catch(() => {});
+    }
+  };
+
+  const handleExportNotes = async () => {
+    if (annotations.length === 0) return;
+    try {
+      const md = annotationsToMarkdown(annotations, currentDocument?.title ?? null);
+      const filePath = await save({
+        defaultPath: `${currentDocument?.title ?? "notes"}.md`,
+        filters: [{ name: "Markdown", extensions: ["md"] }],
+      });
+      if (filePath) {
+        await writeTextFile(filePath, md);
+      }
+    } catch (err) {
+      console.error("Failed to export notes:", err);
     }
   };
 
@@ -97,6 +140,14 @@ export default function LeftSidebar() {
               </p>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <button onClick={handleExportNotes}
+                  style={{
+                    padding: "6px 12px", background: "var(--accent-color)", color: "#fff",
+                    border: "none", borderRadius: 4, fontSize: 12, fontWeight: 500,
+                    cursor: "pointer", alignSelf: "flex-start", marginBottom: 4,
+                  }}>
+                  📥 Export Notes
+                </button>
                 {annotations.map((ann) => (
                   <div key={ann.id} style={{
                     padding: "8px 10px", background: "var(--bg-secondary)",

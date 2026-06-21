@@ -3,6 +3,7 @@ import * as pdfjsLib from "pdfjs-dist";
 import { PDFDocumentProxy } from "pdfjs-dist";
 import "../pdfjs";
 import { useDocumentStore } from "../stores/documentStore";
+import { useSettingsStore } from "../stores/settingsStore";
 import { useAiStore } from "../stores/aiStore";
 import { invoke } from "@tauri-apps/api/core";
 import { extractToc, type TocNodeInput } from "../features/toc/tocTree";
@@ -39,11 +40,22 @@ export default function PdfViewer({ filePath, documentId }: PdfViewerProps) {
     scrollToPage,
   } = useDocumentStore();
   const runWorkflow = useAiStore((s) => s.runWorkflow);
+  const theme = useSettingsStore((s) => s.theme);
+  const setTheme = useSettingsStore((s) => s.setTheme);
   const pdfRef = useRef<PDFDocumentProxy | null>(null);
   const extractionRef = useRef<PageExtractionQueue | null>(null);
   const progScrollRef = useRef(false);
   const pageDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const zoomAnchorRef = useRef<{ oldScrollTop: number; oldZoom: number } | null>(null);
+
+  // Search state
+  const [showSearch, setShowSearch] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<Array<{ pageNum: number; context: string }>>([]);
+  const [currentResultIdx, setCurrentResultIdx] = useState(0);
+  const [isSearching, setIsSearching] = useState(false);
+  const searchCancelledRef = useRef(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Compute page heights from base viewport and zoom
   const pageHeightAtZoom = basePageHeight * zoom;
@@ -89,7 +101,7 @@ export default function PdfViewer({ filePath, documentId }: PdfViewerProps) {
     };
   }, []);
 
-  // Programmatic scroll (TOC, citations, keyboard arrows)
+  // Programmatic scroll (TOC, citations, keyboard arrows, doc restore)
   useEffect(() => {
     if (!currentDocument || heights.length === 0) return;
     const container = scrollRef.current;
@@ -100,11 +112,11 @@ export default function PdfViewer({ filePath, documentId }: PdfViewerProps) {
       acc += heights[i];
     }
     container.scrollTop = acc;
-    requestAnimationFrame(() => {
+    const raf = requestAnimationFrame(() => {
       progScrollRef.current = false;
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage]);
+    return () => cancelAnimationFrame(raf);
+  }, [currentPage, heights.length]);
 
   // Load PDF
   useEffect(() => {
@@ -287,6 +299,67 @@ export default function PdfViewer({ filePath, documentId }: PdfViewerProps) {
     }
   }, [zoom, heights]);
 
+  // Search across all pages via pdfjs text content
+  const performSearch = useCallback(async (query: string) => {
+    const pdf = pdfRef.current;
+    if (!pdf || !query.trim()) { setSearchResults([]); return; }
+    searchCancelledRef.current = false;
+    setIsSearching(true);
+    const results: Array<{ pageNum: number; context: string }> = [];
+    const q = query.toLowerCase();
+
+    for (let i = 1; i <= pdf.numPages; i++) {
+      if (searchCancelledRef.current) break;
+      try {
+        const page = await pdf.getPage(i);
+        const tc = await page.getTextContent();
+        const text = tc.items.map((item: any) => item.str).join(" ");
+        page.cleanup();
+
+        let pos = text.toLowerCase().indexOf(q);
+        while (pos >= 0) {
+          const start = Math.max(0, pos - 40);
+          const end = Math.min(text.length, pos + q.length + 40);
+          const snippet = (start > 0 ? "…" : "") + text.slice(start, end).trim() + (end < text.length ? "…" : "");
+          results.push({ pageNum: i, context: snippet });
+          pos = text.toLowerCase().indexOf(q, pos + 1);
+        }
+      } catch { /* skip unrenderable pages */ }
+      // Yield every 3 pages to keep UI responsive for long PDFs
+      if (i % 3 === 0) await new Promise((r) => setTimeout(r, 0));
+    }
+
+    if (!searchCancelledRef.current) {
+      setSearchResults(results);
+      setCurrentResultIdx(0);
+      if (results.length > 0) scrollToPage(results[0].pageNum);
+    }
+    setIsSearching(false);
+  }, [scrollToPage]);
+
+  // Cancel search on unmount
+  useEffect(() => {
+    return () => { searchCancelledRef.current = true; };
+  }, []);
+
+  const goToSearchResult = useCallback((idx: number) => {
+    if (idx < 0 || idx >= searchResults.length) return;
+    setCurrentResultIdx(idx);
+    scrollToPage(searchResults[idx].pageNum);
+  }, [searchResults, scrollToPage]);
+
+  const handleToggleSearch = useCallback(() => {
+    setShowSearch((prev) => {
+      if (prev) {
+        searchCancelledRef.current = true;
+        setSearchQuery("");
+        setSearchResults([]);
+        setCurrentResultIdx(0);
+      }
+      return !prev;
+    });
+  }, []);
+
   // Build visible page list
   const pageNumbers = useMemo(() => {
     const nums: number[] = [];
@@ -321,12 +394,59 @@ export default function PdfViewer({ filePath, documentId }: PdfViewerProps) {
           / {pageCount || "?"}
         </span>
         <button onClick={() => goToPage(currentPage + 1)} disabled={!pdfRef.current || currentPage >= pageCount}>Next ▶</button>
+        <button onClick={handleToggleSearch} title="Search (Ctrl+F)" style={{ opacity: showSearch ? 1 : 0.6 }}>
+          🔍
+        </button>
+        <button onClick={() => setTheme(theme === "light" ? "dark" : "light")} title="Toggle dark/light theme">
+          {theme === "light" ? "🌙" : "☀️"}
+        </button>
         <span style={{ flex: 1 }} />
         <button onClick={() => handleSetZoom(zoom - 0.25)} disabled={zoom <= 0.25}>−</button>
         <span>{Math.round(zoom * 100)}%</span>
         <button onClick={() => handleSetZoom(zoom + 0.25)} disabled={zoom >= 4.0}>+</button>
         <button onClick={() => handleSetZoom(1.0)}>Reset</button>
       </div>
+
+      {/* Search bar */}
+      {showSearch && (
+        <div style={{
+          display: "flex", alignItems: "center", gap: 6, flexShrink: 0,
+          padding: "4px 12px", borderBottom: "1px solid var(--border-color)",
+          background: "var(--bg-primary)", fontSize: 13,
+        }}>
+          <input
+            ref={searchInputRef}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") performSearch(searchQuery); }}
+            placeholder="Search in document…"
+            autoFocus
+            style={{
+              flex: 1, padding: "4px 8px", border: "1px solid var(--border-color)",
+              borderRadius: 3, fontSize: 13, background: "var(--bg-primary)", color: "var(--text-primary)",
+            }}
+          />
+          <button onClick={() => performSearch(searchQuery)} disabled={isSearching || !searchQuery.trim()}
+            style={{ padding: "4px 10px", background: "var(--accent-color)", color: "#fff", border: "none", borderRadius: 3, fontSize: 12, fontWeight: 500, cursor: "pointer" }}>
+            {isSearching ? "…" : "Search"}
+          </button>
+          {!isSearching && searchResults.length > 0 && (
+            <>
+              <span style={{ color: "var(--text-secondary)", fontSize: 12, whiteSpace: "nowrap" }}>
+                {currentResultIdx + 1} / {searchResults.length}
+              </span>
+              <button onClick={() => goToSearchResult(currentResultIdx - 1)} disabled={currentResultIdx <= 0}
+                style={{ padding: "2px 6px", fontSize: 12, cursor: "pointer" }}>◀</button>
+              <button onClick={() => goToSearchResult(currentResultIdx + 1)} disabled={currentResultIdx >= searchResults.length - 1}
+                style={{ padding: "2px 6px", fontSize: 12, cursor: "pointer" }}>▶</button>
+            </>
+          )}
+          {!isSearching && searchQuery && searchResults.length === 0 && (
+            <span style={{ color: "var(--text-muted)", fontSize: 12 }}>No results</span>
+          )}
+          <button onClick={handleToggleSearch} style={{ padding: "2px 6px", fontSize: 12, cursor: "pointer" }}>✕</button>
+        </div>
+      )}
 
       {/* Scroll container */}
       <div

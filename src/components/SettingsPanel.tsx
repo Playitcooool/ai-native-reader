@@ -104,15 +104,15 @@ export default function SettingsPanel() {
 
       <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>Base URL</label>
       <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://api.openai.com/v1"
-        style={{ padding: "6px 8px", border: "1px solid var(--border-color)", borderRadius: 4, fontSize: 13 }} />
+        style={{ padding: "6px 8px", border: "1px solid var(--border-color)", borderRadius: 4, fontSize: 13, background: "var(--bg-primary)", color: "var(--text-primary)" }} />
 
       <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>API Key</label>
       <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="sk-..."
-        style={{ padding: "6px 8px", border: "1px solid var(--border-color)", borderRadius: 4, fontSize: 13 }} />
+        style={{ padding: "6px 8px", border: "1px solid var(--border-color)", borderRadius: 4, fontSize: 13, background: "var(--bg-primary)", color: "var(--text-primary)" }} />
 
       <label style={{ fontSize: 12, color: "var(--text-secondary)" }}>Model</label>
       <input value={model} onChange={(e) => setModel(e.target.value)} placeholder="gpt-4o-mini"
-        style={{ padding: "6px 8px", border: "1px solid var(--border-color)", borderRadius: 4, fontSize: 13 }} />
+        style={{ padding: "6px 8px", border: "1px solid var(--border-color)", borderRadius: 4, fontSize: 13, background: "var(--bg-primary)", color: "var(--text-primary)" }} />
 
       <div style={{ display: "flex", gap: 8 }}>
         <button onClick={handleSave} disabled={saving}

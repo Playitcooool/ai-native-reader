@@ -242,8 +242,8 @@ export default function PageView({
         <div
           style={{
             height,
-            background: "#fff9f9",
-            border: "1px solid #fcc",
+            background: "var(--bg-secondary)",
+            border: "1px solid var(--danger-color)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -261,7 +261,7 @@ export default function PageView({
         style={{
           display: phase === "ready" ? "block" : "none",
           boxShadow: "0 1px 4px rgba(0,0,0,0.1)",
-          background: "#fff",
+          background: "var(--bg-primary)",
           width: "100%",
         }}
       />

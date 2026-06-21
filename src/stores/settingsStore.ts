@@ -22,15 +22,18 @@ export interface ProviderSettingsInput {
 interface SettingsState {
   settings: ProviderSettings[];
   showSettings: boolean;
+  theme: "light" | "dark";
   setSettings: (settings: ProviderSettings[]) => void;
   addSetting: (setting: ProviderSettings) => void;
   updateSetting: (id: string, setting: ProviderSettings) => void;
   toggleSettings: () => void;
+  setTheme: (theme: "light" | "dark") => void;
 }
 
 export const useSettingsStore = create<SettingsState>((set) => ({
   settings: [],
   showSettings: false,
+  theme: (localStorage.getItem("reader-theme") as "light" | "dark") ?? "light",
   setSettings: (settings) => set({ settings }),
   addSetting: (setting) =>
     set((state) => ({ settings: [...state.settings, setting] })),
@@ -40,4 +43,8 @@ export const useSettingsStore = create<SettingsState>((set) => ({
     })),
   toggleSettings: () =>
     set((state) => ({ showSettings: !state.showSettings })),
+  setTheme: (theme) => {
+    localStorage.setItem("reader-theme", theme);
+    set({ theme });
+  },
 }));

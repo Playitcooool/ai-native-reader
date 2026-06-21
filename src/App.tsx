@@ -15,6 +15,11 @@ function App() {
   const setSettings = useSettingsStore((s) => s.setSettings);
   const handleOpenPdf = useDocumentStore((s) => s.handleOpenPdf);
   const setCurrentDocument = useDocumentStore((s) => s.setCurrentDocument);
+  const theme = useSettingsStore((s) => s.theme);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+  }, [theme]);
 
   useEffect(() => {
     invoke<ProviderSettings[]>("get_provider_settings")
