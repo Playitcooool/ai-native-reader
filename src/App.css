@@ -7,30 +7,35 @@
 
 .sidebar-left {
   width: var(--sidebar-width);
-  min-width: 200px;
+  min-width: 150px;
   max-width: 500px;
   background: var(--bg-secondary);
   border-right: 1px solid var(--border-color);
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  resize: horizontal;
+  flex-shrink: 0;
 }
 
 .sidebar-left .tabs {
   display: flex;
   border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
 }
 
 .sidebar-left .tab-btn {
   flex: 1;
-  padding: 10px;
+  min-width: 0;
+  padding: 10px 4px;
   background: none;
   border: none;
-  font-size: 13px;
+  font-size: 12px;
   color: var(--text-secondary);
   border-bottom: 2px solid transparent;
   transition: all 0.15s;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .sidebar-left .tab-btn.active {
@@ -50,12 +55,11 @@
 
 .center-viewer {
   flex: 1;
+  min-width: 200px;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
   background: var(--bg-tertiary);
-  overflow: auto;
+  overflow: hidden;
   position: relative;
 }
 
@@ -76,14 +80,29 @@
 
 .sidebar-right {
   width: var(--ai-sidebar-width);
-  min-width: 250px;
+  min-width: 200px;
   max-width: 600px;
   background: var(--bg-primary);
   border-left: 1px solid var(--border-color);
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  resize: horizontal;
+  flex-shrink: 0;
+}
+
+.splitter {
+  width: 5px;
+  cursor: col-resize;
+  flex-shrink: 0;
+  background: transparent;
+  position: relative;
+  z-index: 10;
+  transition: background 0.15s;
+}
+
+.splitter:hover,
+.splitter:active {
+  background: var(--accent-color);
 }
 
 .ai-header {
