@@ -24,6 +24,17 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::documents::import_pdf,
+            commands::documents::get_documents,
+            commands::documents::get_document,
+            commands::documents::update_last_page,
+            commands::documents::update_last_zoom,
+            commands::documents::update_page_count,
+            commands::documents::delete_document,
+            commands::pages::save_page_text,
+            commands::pages::get_page_text,
+            commands::pages::get_pages_text,
+            commands::pages::mark_page_text_failed,
             commands::settings::get_provider_settings,
             commands::settings::save_provider_settings,
             commands::settings::set_default_provider,
