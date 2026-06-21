@@ -3,7 +3,7 @@ use tauri::State;
 use uuid::Uuid;
 use chrono::Utc;
 
-use crate::ai::context_builder;
+use crate::ai::context_builder::{self, ContextPack};
 use crate::ai::provider::{self, ChatMessage};
 use crate::commands::settings::DbState;
 
@@ -489,4 +489,214 @@ pub fn get_citations_for_message(
         .collect();
 
     Ok(citations)
+}
+
+// ---------------------------------------------------------------------------
+// AI Workflow: generic runner for all modes
+// ---------------------------------------------------------------------------
+
+/// Input accepted by run_ai_workflow.
+/// All modes use the same input shape; the handler picks the relevant fields.
+#[derive(Debug, Deserialize)]
+pub struct RunAiWorkflowInput {
+    pub document_id: String,
+    pub document_title: Option<String>,
+    /// One of: selection_explain | page_summary | range_summary | chapter_qa
+    pub mode: String,
+    pub page_number: i64,
+    pub selected_text: Option<String>,
+    pub start_page: Option<i64>,
+    pub end_page: Option<i64>,
+    pub question: Option<String>,
+    /// If provided, reuse/save to this session; if empty, a new session is created.
+    pub existing_session_id: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AiWorkflowResult {
+    pub message_id: String,
+    pub session_id: String,
+    pub answer_md: String,
+    pub context_snapshot: ContextPack,
+}
+
+#[tauri::command]
+pub async fn run_ai_workflow(
+    db: State<'_, DbState>,
+    input: RunAiWorkflowInput,
+) -> Result<AiWorkflowResult, String> {
+    // 1. Resolve session
+    let scope_type = &input.mode;
+    let (scope_json, session_id) = {
+        let sid = input.existing_session_id.clone().unwrap_or_else(|| Uuid::new_v4().to_string());
+        let scope = format!("{{\"scopeType\":\"{}\"}}", input.mode);
+        (scope, sid)
+    };
+
+    // 2. Build context
+    let title = input.document_title.as_deref().unwrap_or("Untitled");
+
+    let context_pack = {
+        let conn = db.0.lock().map_err(|e| e.to_string())?;
+        context_builder::build_context_pack_for_mode(
+            &conn,
+            &input.document_id,
+            title,
+            &input.mode,
+            input.page_number,
+            input.selected_text.as_deref(),
+            input.start_page,
+            input.end_page,
+            Some(&session_id),
+        )
+    };
+
+    // 3. Build prompt messages
+    let evidence_text = context_pack
+        .hard_evidence
+        .iter()
+        .map(|item| item.text.as_str())
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    let memory_text = context_pack
+        .soft_memory
+        .iter()
+        .map(|item| item.text.as_str())
+        .collect::<Vec<_>>()
+        .join("\n\n");
+
+    let (system_prompt, user_prompt) = match input.mode.as_str() {
+        "selection_explain" => {
+            let sel = input.selected_text.as_deref().unwrap_or("");
+            crate::ai::prompts::explain_selection(title, input.page_number, "", sel, &evidence_text)
+        }
+        "page_summary" => {
+            crate::ai::prompts::summarize_page(title, input.page_number, "", &evidence_text)
+        }
+        "range_summary" => {
+            let sp = input.start_page.unwrap_or(input.page_number);
+            let ep = input.end_page.unwrap_or(input.page_number);
+            crate::ai::prompts::summarize_range(title, sp, ep, "", &evidence_text)
+        }
+        "chapter_qa" => {
+            let q = input.question.as_deref().unwrap_or("");
+            crate::ai::prompts::ask_current_section(title, input.page_number, "", 1, 1, q, &evidence_text)
+        }
+        _ => return Err(format!("Unknown mode: {}", input.mode)),
+    };
+
+    let mut messages = vec![ChatMessage {
+        role: "system".into(),
+        content: system_prompt,
+    }];
+
+    // Add memory context
+    if !memory_text.is_empty() {
+        messages.push(ChatMessage {
+            role: "user".into(),
+            content: format!("[Previous context]\n{}", memory_text),
+        });
+        messages.push(ChatMessage {
+            role: "assistant".into(),
+            content: "Understood. I'll consider this context in my response.".into(),
+        });
+    }
+
+    messages.push(ChatMessage {
+        role: "user".into(),
+        content: user_prompt,
+    });
+
+    // 4. Get provider settings
+    let (base_url, api_key, model) = {
+        let conn = db.0.lock().map_err(|e| e.to_string())?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT base_url, api_key, model FROM provider_settings WHERE is_default = 1 LIMIT 1",
+            )
+            .map_err(|e| e.to_string())?;
+        let mut rows = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, Option<String>>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })
+            .map_err(|e| e.to_string())?;
+        match rows.next() {
+            Some(Ok(r)) => r,
+            _ => return Err("No default provider configured. Open Settings to add one.".to_string()),
+        }
+    };
+
+    // 5. Call AI provider
+    let answer = provider::chat_completion(
+        &base_url.ok_or("Missing base_url")?,
+        &api_key.ok_or("Missing api_key")?,
+        &model,
+        messages,
+        Some(0.3),
+        Some(4096),
+    )
+    .await
+    .map_err(|e| format!("AI request failed: {}", e))?
+    .choices
+    .into_iter()
+    .next()
+    .map(|c| c.message.content)
+    .unwrap_or_default();
+
+    if answer.is_empty() {
+        return Err("AI returned empty response".to_string());
+    }
+
+    // 6. Save messages
+    let now = Utc::now().to_rfc3339();
+    let user_msg_id = Uuid::new_v4().to_string();
+    let assistant_msg_id = Uuid::new_v4().to_string();
+    let context_json = serde_json::to_string(&context_pack).unwrap_or_default();
+
+    {
+        let conn = db.0.lock().map_err(|e| e.to_string())?;
+
+        // Ensure session exists
+        conn.execute(
+            "INSERT OR IGNORE INTO ai_sessions (id, document_id, scope_type, scope_json, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            rusqlite::params![session_id, input.document_id, scope_type, scope_json, now, now],
+        )
+        .map_err(|e| e.to_string())?;
+
+        // Save user message
+        conn.execute(
+            "INSERT INTO ai_messages (id, session_id, role, content, page_number, context_snapshot_json, created_at)
+             VALUES (?1, ?2, 'user', ?3, ?4, ?5, ?6)",
+            rusqlite::params![user_msg_id, session_id, input.selected_text.as_deref().unwrap_or(&input.mode),
+                input.page_number, context_json, now],
+        )
+        .map_err(|e| e.to_string())?;
+
+        // Save assistant message
+        conn.execute(
+            "INSERT INTO ai_messages (id, session_id, role, content, page_number, context_snapshot_json, created_at)
+             VALUES (?1, ?2, 'assistant', ?3, ?4, ?5, ?6)",
+            rusqlite::params![assistant_msg_id, session_id, answer, input.page_number, context_json, now],
+        )
+        .map_err(|e| e.to_string())?;
+
+        // Update session timestamp
+        conn.execute(
+            "UPDATE ai_sessions SET updated_at = ?1 WHERE id = ?2",
+            rusqlite::params![now, session_id],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    Ok(AiWorkflowResult {
+        message_id: assistant_msg_id,
+        session_id,
+        answer_md: answer,
+        context_snapshot: context_pack,
+    })
 }

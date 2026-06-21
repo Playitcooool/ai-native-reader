@@ -55,6 +55,7 @@ pub fn run() {
             commands::ai::get_reading_state,
             commands::ai::update_reading_state,
             commands::ai::get_citations_for_message,
+            commands::ai::run_ai_workflow,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

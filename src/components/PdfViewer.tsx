@@ -4,6 +4,7 @@ import { PDFDocumentProxy, PDFPageProxy } from "pdfjs-dist";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import "../pdfjs";
 import { useDocumentStore } from "../stores/documentStore";
+import { useAiStore } from "../stores/aiStore";
 import { invoke } from "@tauri-apps/api/core";
 import { extractToc, type TocNodeInput } from "../features/toc/tocTree";
 import { PageExtractionQueue } from "../features/pdf/pdfTextExtraction";
@@ -32,7 +33,9 @@ export default function PdfViewer({ filePath, documentId }: PdfViewerProps) {
     setActiveTocNodeId,
     tocNodes,
     loadToc,
+    currentDocument,
   } = useDocumentStore();
+  const runWorkflow = useAiStore((s) => s.runWorkflow);
   const pdfRef = useRef<PDFDocumentProxy | null>(null);
   const renderTaskRef = useRef<any>(null);
   const extractionRef = useRef<PageExtractionQueue | null>(null);
@@ -143,14 +146,10 @@ export default function PdfViewer({ filePath, documentId }: PdfViewerProps) {
     (text: string, anchor: any) => {
       setSelectionText(text);
       setSelectionAnchor(anchor);
-      // Position menu near selection
       const sel = window.getSelection();
       if (sel && !sel.isCollapsed && sel.rangeCount > 0) {
         const rect = sel.getRangeAt(0).getBoundingClientRect();
-        setSelectionPos({
-          x: rect.left + rect.width / 2,
-          y: rect.top,
-        });
+        setSelectionPos({ x: rect.left + rect.width / 2, y: rect.top });
       }
     },
     [],
@@ -162,6 +161,19 @@ export default function PdfViewer({ filePath, documentId }: PdfViewerProps) {
     setSelectionPos(null);
     window.getSelection()?.removeAllRanges();
   }, []);
+
+  // Handle Explain action
+  const handleExplain = useCallback(async () => {
+    if (!currentDocument || !selectionText) return;
+    clearSelection();
+    await runWorkflow({
+      documentId: currentDocument.id,
+      documentTitle: currentDocument.title ?? undefined,
+      mode: "selection_explain",
+      pageNumber: currentPage,
+      selectedText: selectionText,
+    });
+  }, [currentDocument, selectionText, currentPage, runWorkflow, clearSelection]);
 
   // Navigation
   const goToPage = useCallback(
@@ -186,7 +198,7 @@ export default function PdfViewer({ filePath, documentId }: PdfViewerProps) {
     [currentPage, goToPage],
   );
 
-  // Keyboard
+  // Keyboard shortcuts
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
@@ -195,11 +207,16 @@ export default function PdfViewer({ filePath, documentId }: PdfViewerProps) {
       if (e.key === "+" || e.key === "=") { e.preventDefault(); setZoom(zoom + 0.25); }
       if (e.key === "-") { e.preventDefault(); setZoom(zoom - 0.25); }
       if (e.key === "0") { e.preventDefault(); setZoom(1.0); }
+      // 'E' for Explain
+      if ((e.key === "e" || e.key === "E") && selectionText) {
+        e.preventDefault();
+        handleExplain();
+      }
       if (e.key === "Escape") { clearSelection(); }
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [currentPage, zoom, goToPage, setZoom, clearSelection]);
+  }, [currentPage, zoom, goToPage, setZoom, clearSelection, selectionText, handleExplain]);
 
   // Debounced zoom persistence
   useEffect(() => {
@@ -251,27 +268,13 @@ export default function PdfViewer({ filePath, documentId }: PdfViewerProps) {
             <p style={{ color: "var(--danger-color)", marginBottom: 8 }}>{error}</p>
           </div>
         ) : (
-          <div
-            style={{
-              position: "relative",
-              minHeight: pageHeight,
-              userSelect: "none",
-            }}
-          >
+          <div style={{ position: "relative", minHeight: pageHeight, userSelect: "none" }}>
             <canvas
               ref={canvasRef}
-              style={{
-                boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
-                background: "#fff",
-                display: "block",
-              }}
+              style={{ boxShadow: "0 2px 8px rgba(0,0,0,0.15)", background: "#fff", display: "block" }}
             />
             {pageProxy && (
-              <PdfTextLayer
-                page={pageProxy}
-                scale={zoom}
-                onSelection={handleTextSelection}
-              />
+              <PdfTextLayer page={pageProxy} scale={zoom} onSelection={handleTextSelection} />
             )}
           </div>
         )}
@@ -285,11 +288,7 @@ export default function PdfViewer({ filePath, documentId }: PdfViewerProps) {
           anchor={selectionAnchor}
           position={selectionPos}
           onClose={clearSelection}
-          onExplain={() => {
-            // Will be wired in Phase 8
-            alert(`Explain: "${selectionText.slice(0, 50)}..."`);
-            clearSelection();
-          }}
+          onExplain={handleExplain}
         />
       )}
     </div>
