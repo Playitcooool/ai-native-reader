@@ -1,26 +1,39 @@
 import { useEffect, useState } from "react";
-import SettingsPanel from "./SettingsPanel";
-import { useDocumentStore, type Document } from "../stores/documentStore";
 import { invoke } from "@tauri-apps/api/core";
+import SettingsPanel from "./SettingsPanel";
+import { useDocumentStore } from "../stores/documentStore";
+import TocSidebar from "../features/toc/TocSidebar";
 
 type Tab = "toc" | "notes" | "recent" | "settings";
 
 export default function LeftSidebar() {
   const [activeTab, setActiveTab] = useState<Tab>("recent");
-  const { documents, currentDocument, loadDocuments, setCurrentDocument } =
-    useDocumentStore();
+  const {
+    documents,
+    currentDocument,
+    tocNodes,
+    activeTocNodeId,
+    loadDocuments,
+    setCurrentDocument,
+    setCurrentPage,
+  } = useDocumentStore();
 
   useEffect(() => {
     loadDocuments();
   }, [loadDocuments]);
 
-  const handleOpenDocument = async (doc: Document) => {
+  const handleOpenDocument = (doc: typeof documents[0]) => {
     setCurrentDocument(doc);
-    // Verify file still exists
-    try {
-      await invoke("get_document", { documentId: doc.id });
-    } catch {
-      console.warn("Document file may be missing:", doc.file_path);
+  };
+
+  const handleTocNavigate = (page: number) => {
+    const doc = currentDocument;
+    if (doc) {
+      setCurrentPage(page);
+      invoke("update_last_page", {
+        documentId: doc.id,
+        pageNumber: page,
+      }).catch(() => {});
     }
   };
 
@@ -97,11 +110,17 @@ export default function LeftSidebar() {
           </div>
         )}
         {activeTab === "toc" && (
-          <p style={{ color: "var(--text-muted)", fontSize: 14 }}>
-            {currentDocument
-              ? "TOC will appear here after extraction (Phase 2)."
-              : "Open a PDF to see its table of contents."}
-          </p>
+          currentDocument ? (
+            <TocSidebar
+              nodes={tocNodes}
+              activeNodeId={activeTocNodeId}
+              onNavigate={handleTocNavigate}
+            />
+          ) : (
+            <p style={{ color: "var(--text-muted)", fontSize: 14 }}>
+              Open a PDF to see its table of contents.
+            </p>
+          )
         )}
         {activeTab === "notes" && (
           <p style={{ color: "var(--text-muted)", fontSize: 14 }}>

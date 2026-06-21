@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
+import type { TocNode } from "../features/toc/TocSidebar";
 
 export interface Document {
   id: string;
@@ -23,12 +24,17 @@ interface DocumentState {
   currentPage: number;
   totalPages: number;
   zoom: number;
+  tocNodes: TocNode[];
+  activeTocNodeId: string | null;
   setDocuments: (docs: Document[]) => void;
   setCurrentDocument: (doc: Document | null) => void;
   setCurrentPage: (page: number) => void;
   setTotalPages: (count: number) => void;
   setZoom: (zoom: number) => void;
+  setTocNodes: (nodes: TocNode[]) => void;
+  setActiveTocNodeId: (id: string | null) => void;
   loadDocuments: () => Promise<void>;
+  loadToc: (documentId: string) => Promise<void>;
 }
 
 export const useDocumentStore = create<DocumentState>((set) => ({
@@ -37,6 +43,8 @@ export const useDocumentStore = create<DocumentState>((set) => ({
   currentPage: 1,
   totalPages: 0,
   zoom: 1.0,
+  tocNodes: [],
+  activeTocNodeId: null,
   setDocuments: (documents) => set({ documents }),
   setCurrentDocument: (doc) =>
     set({
@@ -46,14 +54,23 @@ export const useDocumentStore = create<DocumentState>((set) => ({
     }),
   setCurrentPage: (page) => set({ currentPage: page }),
   setTotalPages: (count) => set({ totalPages: count }),
-  setZoom: (zoom) =>
-    set({ zoom: Math.max(0.25, Math.min(4.0, zoom)) }),
+  setZoom: (zoom) => set({ zoom: Math.max(0.25, Math.min(4.0, zoom)) }),
+  setTocNodes: (nodes) => set({ tocNodes: nodes }),
+  setActiveTocNodeId: (id) => set({ activeTocNodeId: id }),
   loadDocuments: async () => {
     try {
       const docs = await invoke<Document[]>("get_documents");
       set({ documents: docs });
     } catch (err) {
       console.error("Failed to load documents:", err);
+    }
+  },
+  loadToc: async (documentId) => {
+    try {
+      const nodes = await invoke<TocNode[]>("get_toc_tree", { documentId });
+      set({ tocNodes: nodes });
+    } catch (err) {
+      console.error("Failed to load TOC:", err);
     }
   },
 }));
