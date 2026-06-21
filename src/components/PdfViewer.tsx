@@ -5,7 +5,6 @@ import "../pdfjs";
 import { useDocumentStore } from "../stores/documentStore";
 import { useAiStore } from "../stores/aiStore";
 import { invoke } from "@tauri-apps/api/core";
-import { open } from "@tauri-apps/plugin-dialog";
 import { extractToc, type TocNodeInput } from "../features/toc/tocTree";
 import { PageExtractionQueue } from "../features/pdf/pdfTextExtraction";
 import PdfTextLayer from "../features/pdf/PdfTextLayer";
@@ -65,6 +64,8 @@ export default function PdfViewer({ filePath, documentId }: PdfViewerProps) {
           viewport,
         });
         renderTaskRef.current = renderTask;
+        await renderTask.promise;
+        if (renderTaskRef.current !== renderTask) return;
         setPageProxy(page);
       } catch (err: any) {
         if (err?.name === "RenderingCancelledException") return;
@@ -172,22 +173,7 @@ export default function PdfViewer({ filePath, documentId }: PdfViewerProps) {
   }, []);
 
   // Open another PDF
-  const handleOpenPdf = useCallback(async () => {
-    try {
-      const selected = await open({
-        multiple: false,
-        filters: [{ name: "PDF", extensions: ["pdf"] }],
-      });
-      if (!selected) return;
-      const doc = await invoke<import("../stores/documentStore").Document>("import_pdf", { filePath: selected });
-      useDocumentStore.getState().setCurrentDocument(doc);
-      const docs = await invoke<import("../stores/documentStore").Document[]>("get_documents");
-      useDocumentStore.getState().setDocuments(docs);
-      clearSelection();
-    } catch (err) {
-      console.error("Failed to open PDF:", err);
-    }
-  }, [clearSelection]);
+  const handleOpenPdf = useDocumentStore((s) => s.handleOpenPdf);
 
   // Handle Explain action
   const handleExplain = useCallback(async () => {
@@ -253,8 +239,6 @@ export default function PdfViewer({ filePath, documentId }: PdfViewerProps) {
     return () => clearTimeout(timer);
   }, [zoom, documentId]);
 
-  const pageHeight = canvasRef.current?.height ?? 800;
-
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", width: "100%" }}>
       <div
@@ -264,7 +248,7 @@ export default function PdfViewer({ filePath, documentId }: PdfViewerProps) {
           fontSize: 13, flexShrink: 0,
         }}
       >
-        <button onClick={handleOpenPdf} title="Open PDF (Cmd+O)" style={{ fontWeight: 600 }}>
+        <button onClick={() => { handleOpenPdf(); clearSelection(); }} title="Open PDF (Cmd+O)" style={{ fontWeight: 600 }}>
           📂 Open
         </button>
         <span style={{ color: "var(--border-color)" }}>|</span>
@@ -299,7 +283,7 @@ export default function PdfViewer({ filePath, documentId }: PdfViewerProps) {
             <p style={{ color: "var(--danger-color)", marginBottom: 8 }}>{error}</p>
           </div>
         ) : (
-          <div style={{ position: "relative", minHeight: pageHeight, userSelect: "none" }}>
+          <div style={{ position: "relative", userSelect: "none" }}>
             <canvas
               ref={canvasRef}
               style={{ boxShadow: "0 2px 8px rgba(0,0,0,0.15)", background: "#fff", display: "block" }}
