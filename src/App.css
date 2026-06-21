@@ -101,6 +101,15 @@
   background: var(--bg-secondary);
 }
 
+.sidebar-inner {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--bg-primary);
+}
+
 .sidebar-left .tab-content {
   flex: 1;
   min-height: 0;

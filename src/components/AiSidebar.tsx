@@ -163,7 +163,7 @@ export default function AiSidebar() {
 
   if (!currentDocument) {
     return (
-      <div className="sidebar-right" style={{ display: "flex", flexDirection: "column" }}>
+      <div className="sidebar-inner">
         <div className="ai-header">AI Assistant</div>
         <div className="ai-content">
           <p>Open a PDF to start reading with AI assistance.</p>
@@ -173,7 +173,7 @@ export default function AiSidebar() {
   }
 
   return (
-    <div className="sidebar-right" style={{ display: "flex", flexDirection: "column" }}>
+    <div className="sidebar-inner">
       {/* Compact header with actions */}
       <div style={{
         display: "flex", alignItems: "center", gap: 4,
