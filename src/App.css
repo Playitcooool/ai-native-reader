@@ -92,6 +92,15 @@
   background: var(--bg-tertiary);
 }
 
+.sidebar-left .sidebar-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--bg-secondary);
+}
+
 .sidebar-left .tab-content {
   flex: 1;
   min-height: 0;

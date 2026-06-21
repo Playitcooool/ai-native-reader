@@ -114,7 +114,7 @@ export default function LeftSidebar() {
   };
 
   return (
-    <div className="sidebar-left">
+    <div className="sidebar-body">
       <div className="tabs" role="tablist" aria-label="Sidebar tabs">
         {tabs.map((t, i) => (
           <button

@@ -61,8 +61,8 @@ function App() {
   }, [handleOpenPdf, addToast]);
 
   // Draggable splitters — write to DOM directly during drag for zero-lag resize
-  const [leftWidth, setLeftWidth] = useState(280);
-  const [rightWidth, setRightWidth] = useState(340);
+  const [leftWidth, setLeftWidth] = useState(() => Math.round(window.innerWidth * 0.18));
+  const [rightWidth, setRightWidth] = useState(() => Math.round(window.innerWidth * 0.18));
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(false);
   const leftRef = useRef<HTMLDivElement>(null);
