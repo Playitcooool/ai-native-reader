@@ -1,9 +1,32 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { type CSSProperties, useCallback, useEffect, useRef, useState } from "react";
 import { useDocumentStore } from "../stores/documentStore";
-import { useAiStore } from "../stores/aiStore";
+import { type AiMessage, useAiStore } from "../stores/aiStore";
 import ReactMarkdown from "react-markdown";
 import { invoke } from "@tauri-apps/api/core";
 import { useToast } from "./Toast";
+
+const line = "1px solid var(--border-color)";
+const tinyButton: CSSProperties = { padding: "2px 6px", borderRadius: 3, fontSize: 11, cursor: "pointer" };
+const ghostButton: CSSProperties = { ...tinyButton, background: "transparent", color: "var(--text-secondary)", border: line };
+const messageStyle: CSSProperties = {
+  padding: "6px 8px",
+  borderRadius: 4,
+  background: "var(--bg-primary)",
+  border: line,
+  fontSize: 12,
+  lineHeight: 1.5,
+};
+const labelStyle: CSSProperties = {
+  fontSize: 10,
+  fontWeight: 600,
+  color: "var(--text-muted)",
+  textTransform: "uppercase",
+  letterSpacing: "0.5px",
+};
+
+function primaryButton(bg = "var(--accent-color)"): CSSProperties {
+  return { ...tinyButton, background: bg, color: "#fff", border: "none", fontWeight: 500 };
+}
 
 export default function AiSidebar() {
   const { currentDocument, currentPage, setCurrentPage } = useDocumentStore();
@@ -103,9 +126,8 @@ export default function AiSidebar() {
     }
   }, [currentDocument, currentPage, input, runWorkflow, addToast]);
 
-  // Save AI answer as note
   const handleSaveAsNote = useCallback(
-    async (msg: typeof messages[0]) => {
+    async (msg: AiMessage) => {
       if (!currentDocument || savedNotes.has(msg.id)) return;
       try {
         await invoke("create_annotation", {
@@ -122,12 +144,11 @@ export default function AiSidebar() {
         addToast({ type: "error", message: "Failed to save note." });
       }
     },
-    [currentDocument, currentPage, savedNotes],
+    [currentDocument, currentPage, savedNotes, addToast],
   );
 
-  // Continue AI response
   const handleContinue = useCallback(
-    async (msg: typeof messages[0]) => {
+    async (msg: AiMessage) => {
       if (!currentDocument || isGenerating) return;
       try {
         await runWorkflow({
@@ -144,7 +165,6 @@ export default function AiSidebar() {
     [currentDocument, currentPage, isGenerating, runWorkflow, addToast],
   );
 
-  // Handle citation click
   const handleCitationClick = useCallback(
     (e: React.MouseEvent, pageNumber: number) => {
       e.preventDefault();
@@ -157,9 +177,8 @@ export default function AiSidebar() {
     [currentDocument?.id, setCurrentPage],
   );
 
-  // Custom markdown renderer for citation links
-  const renderers = useCallback(
-    (_msg: typeof messages[0]) => ({
+  const citationRenderers = useCallback(
+    () => ({
       p: ({ children }: any) => {
         const text = extractText(children);
         if (!text) return <p>{children}</p>;
@@ -210,55 +229,52 @@ export default function AiSidebar() {
 
   return (
     <div className="sidebar-inner">
-      {/* Compact header with actions */}
       <div style={{
         display: "flex", alignItems: "center", gap: 4,
-        padding: "6px 10px", borderBottom: "1px solid var(--border-color)",
+        padding: "6px 10px", borderBottom: line,
         fontSize: 13, fontWeight: 600, flexShrink: 0,
       }}>
         <span style={{ marginRight: "auto" }}>AI</span>
         <button onClick={handleSummarizePage} disabled={isGenerating}
-          style={{ padding: "2px 6px", fontSize: 11, background: "var(--accent-color)", color: "#fff", border: "none", borderRadius: 3, cursor: "pointer", fontWeight: 500 }}>
+          style={primaryButton()}>
           Summarize
         </button>
         <button onClick={() => setShowRange(!showRange)}
-          style={{ padding: "2px 6px", fontSize: 11, background: showRange ? "var(--accent-color)" : "var(--bg-tertiary)", color: showRange ? "#fff" : "var(--text-secondary)", border: "none", borderRadius: 3, cursor: "pointer" }}>
+          style={showRange ? primaryButton() : { ...ghostButton, background: "var(--bg-tertiary)", border: "none" }}>
           Range
         </button>
         <button onClick={() => window.getSelection()?.toString().trim() ? handleExplain() : null}
           disabled={isGenerating}
-          style={{ padding: "2px 6px", fontSize: 11, background: "var(--success-color)", color: "#fff", border: "none", borderRadius: 3, cursor: "pointer", fontWeight: 500 }}>
+          style={primaryButton("var(--success-color)")}>
           Explain
         </button>
         {lastWorkflowInput && !isGenerating && (
           <button onClick={() => retryLastWorkflow().catch((err) => addToast({ type: "error", message: `AI retry failed: ${err}` }))}
-            style={{ padding: "2px 6px", fontSize: 11, background: "transparent", color: "var(--text-secondary)", border: "1px solid var(--border-color)", borderRadius: 3, cursor: "pointer" }}>
+            style={ghostButton}>
             ↻ Retry
           </button>
         )}
       </div>
 
-      {/* Page range (collapsible) */}
       {showRange && (
         <div style={{
           display: "flex", alignItems: "center", gap: 3,
-          padding: "4px 10px", borderBottom: "1px solid var(--border-color)",
+          padding: "4px 10px", borderBottom: line,
           fontSize: 12, flexShrink: 0,
         }}>
           <span style={{ color: "var(--text-muted)", fontSize: 11 }}>From</span>
           <input type="number" value={rangeStart} onChange={(e) => setRangeStart(e.target.value)} placeholder="1" min={1} max={currentDocument?.page_count ?? 9999}
-            style={{ width: 40, padding: "2px 4px", border: "1px solid var(--border-color)", borderRadius: 3, fontSize: 11, background: "var(--bg-primary)", color: "var(--text-primary)" }} />
+            style={{ width: 40, padding: "2px 4px", border: line, borderRadius: 3, fontSize: 11, background: "var(--bg-primary)", color: "var(--text-primary)" }} />
           <span style={{ color: "var(--text-muted)", fontSize: 11 }}>to</span>
           <input type="number" value={rangeEnd} onChange={(e) => setRangeEnd(e.target.value)} placeholder="1" min={1} max={currentDocument?.page_count ?? 9999}
-            style={{ width: 40, padding: "2px 4px", border: "1px solid var(--border-color)", borderRadius: 3, fontSize: 11, background: "var(--bg-primary)", color: "var(--text-primary)" }} />
+            style={{ width: 40, padding: "2px 4px", border: line, borderRadius: 3, fontSize: 11, background: "var(--bg-primary)", color: "var(--text-primary)" }} />
           <button onClick={handleSummarizeRange} disabled={isGenerating || !rangeStart || !rangeEnd}
-            style={{ padding: "2px 6px", fontSize: 11, background: "var(--accent-color)", color: "#fff", border: "none", borderRadius: 3, cursor: "pointer" }}>
+            style={primaryButton()}>
             Go
           </button>
         </div>
       )}
 
-      {/* Messages */}
       <div ref={listRef} role="log" aria-live="polite" aria-label="AI conversation" style={{ flex: 1, overflowY: "auto", padding: "8px 10px", display: "flex", flexDirection: "column", gap: 8 }}>
         {messages.length === 0 && (
           <div style={{ textAlign: "center", color: "var(--text-muted)", fontSize: 12, marginTop: 16, lineHeight: 1.6 }}>
@@ -267,17 +283,13 @@ export default function AiSidebar() {
           </div>
         )}
         {messages.map((msg) => (
-          <div key={msg.id} style={{
-            padding: "6px 8px", borderRadius: 4,
-            background: msg.role === "user" ? "var(--bg-secondary)" : "var(--bg-primary)",
-            border: "1px solid var(--border-color)", fontSize: 12, lineHeight: 1.5,
-          }}>
-            <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-muted)", marginBottom: 2, textTransform: "uppercase", letterSpacing: "0.5px" }}>
+          <div key={msg.id} style={{ ...messageStyle, background: msg.role === "user" ? "var(--bg-secondary)" : "var(--bg-primary)" }}>
+            <div style={{ ...labelStyle, marginBottom: 2 }}>
               {msg.role === "user" ? "You" : "AI"}
             </div>
             {msg.role === "assistant" ? (
               <div className="markdown-content">
-                <ReactMarkdown components={renderers(msg)}>{msg.content}</ReactMarkdown>
+                <ReactMarkdown components={citationRenderers()}>{msg.content}</ReactMarkdown>
               </div>
             ) : (
               <div>{msg.content}</div>
@@ -286,15 +298,15 @@ export default function AiSidebar() {
               <div style={{ marginTop: 4, display: "flex", gap: 4 }}>
                 <button onClick={() => navigator.clipboard.writeText(msg.content)}
                   title="Copy"
-                  style={{ padding: "2px 6px", fontSize: 12, lineHeight: 1, background: "transparent", color: "var(--text-muted)", border: "1px solid var(--border-color)", borderRadius: 3, cursor: "pointer" }}>
+                  style={{ ...ghostButton, fontSize: 12, lineHeight: 1, color: "var(--text-muted)" }}>
                   📋
                 </button>
                 <button onClick={() => handleSaveAsNote(msg)} disabled={savedNotes.has(msg.id)}
-                  style={{ padding: "2px 6px", fontSize: 10, background: "transparent", color: savedNotes.has(msg.id) ? "var(--text-muted)" : "var(--accent-color)", border: `1px solid ${savedNotes.has(msg.id) ? "var(--border-color)" : "var(--accent-color)"}`, borderRadius: 3, cursor: "pointer" }}>
+                  style={{ ...ghostButton, fontSize: 10, color: savedNotes.has(msg.id) ? "var(--text-muted)" : "var(--accent-color)", borderColor: savedNotes.has(msg.id) ? "var(--border-color)" : "var(--accent-color)" }}>
                   {savedNotes.has(msg.id) ? "✓ Saved" : "Save"}
                 </button>
                 <button onClick={() => handleContinue(msg)} disabled={isGenerating}
-                  style={{ padding: "2px 6px", fontSize: 10, background: "transparent", color: "var(--text-secondary)", border: "1px solid var(--border-color)", borderRadius: 3, cursor: "pointer" }}>
+                  style={{ ...ghostButton, fontSize: 10 }}>
                   Continue
                 </button>
               </div>
@@ -310,17 +322,13 @@ export default function AiSidebar() {
           </div>
         ))}
         {isGenerating && streamingContent && (
-          <div style={{
-            padding: "6px 8px", borderRadius: 4,
-            background: "var(--bg-primary)",
-            border: "1px solid var(--border-color)", fontSize: 12, lineHeight: 1.5,
-          }}>
+          <div style={messageStyle}>
             <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 2 }}>
-              <span style={{ fontSize: 10, fontWeight: 600, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+              <span style={labelStyle}>
                 AI
               </span>
               <button onClick={cancelWorkflow} title="Cancel"
-                style={{ marginLeft: "auto", padding: "1px 5px", background: "transparent", color: "var(--text-muted)", border: "1px solid var(--border-color)", borderRadius: 3, fontSize: 10, cursor: "pointer" }}>
+                style={{ ...ghostButton, marginLeft: "auto", padding: "1px 5px", fontSize: 10, color: "var(--text-muted)" }}>
                 ✕
               </button>
             </div>
@@ -337,17 +345,16 @@ export default function AiSidebar() {
                "Thinking…"}
             </span>
             <button onClick={cancelWorkflow} title="Cancel"
-              style={{ marginLeft: 8, padding: "2px 6px", background: "transparent", color: "var(--text-muted)", border: "1px solid var(--border-color)", borderRadius: 3, fontSize: 11, cursor: "pointer" }}>
+              style={{ ...ghostButton, marginLeft: 8, color: "var(--text-muted)" }}>
               ✕
             </button>
           </div>
         )}
       </div>
 
-      {/* Composer */}
       <div style={{
         display: "flex", gap: 4, padding: "6px 10px",
-        borderTop: "1px solid var(--border-color)", flexShrink: 0,
+        borderTop: line, flexShrink: 0,
       }}>
         <textarea
           value={input}
@@ -367,13 +374,13 @@ export default function AiSidebar() {
           disabled={isGenerating}
           rows={1}
           style={{
-            flex: 1, padding: "5px 8px", border: "1px solid var(--border-color)",
+            flex: 1, padding: "5px 8px", border: line,
             borderRadius: 4, fontSize: 12, background: "var(--bg-primary)", color: "var(--text-primary)",
             resize: "none", overflow: "hidden", lineHeight: 1.4, fontFamily: "inherit",
           }}
         />
         <button onClick={handleAskQuestion} disabled={isGenerating || !input.trim()} title="Ask"
-          style={{ padding: "5px 10px", background: "var(--accent-color)", color: "#fff", border: "none", borderRadius: 4, fontSize: 15, lineHeight: 1, cursor: "pointer" }}>
+          style={{ ...primaryButton(), padding: "5px 10px", borderRadius: 4, fontSize: 15, lineHeight: 1 }}>
           ▶
         </button>
       </div>
