@@ -24,13 +24,11 @@ export default function SelectionMenu({
   onAsk,
 }: SelectionMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
-  const firstBtnRef = useRef<HTMLButtonElement>(null);
   const [saved, setSaved] = useState(false);
   const [noteText, setNoteText] = useState("");
   const { addToast } = useToast();
 
   useEffect(() => {
-    firstBtnRef.current?.focus();
     const handleClick = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         onClose();
@@ -129,6 +127,10 @@ export default function SelectionMenu({
     else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
   };
 
+  const keepPdfSelection = (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+  };
+
   return (
     <div
       ref={menuRef}
@@ -152,8 +154,8 @@ export default function SelectionMenu({
       }}
     >
       <button
-        ref={firstBtnRef}
         role="menuitem"
+        onMouseDown={keepPdfSelection}
         onClick={() => { onExplain(); onClose(); }}
         style={{
           padding: "4px 10px",
@@ -169,6 +171,7 @@ export default function SelectionMenu({
       </button>
       <button
         role="menuitem"
+        onMouseDown={keepPdfSelection}
         onClick={() => { onAsk?.(selectedText); onClose(); }}
         title="Ask about this selection"
         style={{
@@ -184,6 +187,7 @@ export default function SelectionMenu({
       </button>
       <button
         role="menuitem"
+        onMouseDown={keepPdfSelection}
         onClick={handleSaveHighlight}
         style={{
           padding: "4px 10px",
@@ -215,6 +219,7 @@ export default function SelectionMenu({
         {noteText && (
           <button
             role="menuitem"
+            onMouseDown={keepPdfSelection}
             onClick={handleSaveNote}
             style={{
               padding: "4px 8px",
