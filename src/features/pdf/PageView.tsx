@@ -142,7 +142,8 @@ export default memo(function PageView({
     if (textEl) textEl.style.display = "none";
 
     // Apply CSS scale for instant GPU-composited zoom feedback
-    wrapper.style.transform = `scale(${ratio})`;
+    // Preserve translateX(-50%) centering from the wrapper's inline style
+    wrapper.style.transform = `translateX(-50%) scale(${ratio})`;
     wrapper.style.transformOrigin = "top left";
     wrapper.style.willChange = "transform";
 
@@ -160,7 +161,7 @@ export default memo(function PageView({
       back.style.opacity = "1";
 
       // Remove CSS transform (new canvas is native-size at new zoom)
-      wrapper.style.transform = "";
+      wrapper.style.transform = "translateX(-50%)";
       wrapper.style.willChange = "";
 
       // Restore text layer
