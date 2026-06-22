@@ -60,6 +60,14 @@ function App() {
     };
   }, [handleOpenPdf, addToast]);
 
+  // Listen for library folder updates (new PDF auto-imported by watcher)
+  useEffect(() => {
+    const unlisten = listen("library-folder-updated", () => {
+      useDocumentStore.getState().loadDocuments();
+    });
+    return () => { unlisten.then((fn) => fn()); };
+  }, []);
+
   // Draggable splitters — write to DOM directly during drag for zero-lag resize
   const [leftWidth, setLeftWidth] = useState(() => Math.round(window.innerWidth * 0.18));
   const [rightWidth, setRightWidth] = useState(() => Math.round(window.innerWidth * 0.18));
