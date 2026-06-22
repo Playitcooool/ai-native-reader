@@ -42,8 +42,10 @@ export default function LeftSidebar() {
     currentDocument,
     tocNodes,
     activeTocNodeId,
+    libraryFolder,
     isLoading: docsLoading,
     loadDocuments,
+    loadLibraryFolder,
     setCurrentDocument,
     setCurrentPage,
   } = useDocumentStore();
@@ -54,7 +56,8 @@ export default function LeftSidebar() {
     loadDocuments().catch(() =>
       addToast({ type: "error", message: "Failed to load documents." })
     );
-  }, [loadDocuments, addToast]);
+    loadLibraryFolder();
+  }, [loadDocuments, loadLibraryFolder, addToast]);
 
   useEffect(() => {
     if (currentDocument) {
@@ -137,6 +140,11 @@ export default function LeftSidebar() {
             <div key={t.id} role="tabpanel" id={`tabpanel-${t.id}`} aria-labelledby={`tab-${t.id}`}>
               {t.id === "recent" && (
                 <div>
+                  {libraryFolder && (
+                    <p style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 6, padding: "0 4px" }}>
+                      📁 Watching: {libraryFolder.split("/").pop() ?? libraryFolder}
+                    </p>
+                  )}
                   {docsLoading ? (
               <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "4px 0" }}>
                 <SkeletonBlock lines={[70, 40]} />
