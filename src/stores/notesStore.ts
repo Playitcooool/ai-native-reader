@@ -29,7 +29,7 @@ export const useNotesStore = create<NotesState>((set) => ({
     set({ isLoading: true });
     try {
       const result = await invoke<Annotation[]>("get_annotations", {
-        input: { documentId, pageNumber: pageNumber ?? null },
+        input: { document_id: documentId, page_number: pageNumber ?? null },
       });
       set({ annotations: result, isLoading: false });
     } catch (e) {
