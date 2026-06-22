@@ -161,11 +161,6 @@ export default function LeftSidebar() {
                     }}
                   >
                     <div style={{ fontWeight: 500 }}>{doc.title ?? doc.original_filename}</div>
-                    {doc.last_page && (
-                      <div style={{ fontSize: 11, opacity: 0.7, marginTop: 2 }}>
-                        Page {doc.last_page}{doc.page_count ? ` / ${doc.page_count}` : ""}
-                      </div>
-                    )}
                   </button>
                 ))}
               </div>
