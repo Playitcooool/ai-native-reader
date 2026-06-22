@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import type { PDFPageProxy } from "pdfjs-dist";
 import type { TextItem } from "pdfjs-dist/types/src/display/api";
 
@@ -19,7 +19,7 @@ interface PdfTextLayerProps {
   containerHeight?: number;
 }
 
-export default function PdfTextLayer({ page, scale, onSelection, containerWidth, containerHeight }: PdfTextLayerProps) {
+export default memo(function PdfTextLayer({ page, scale, onSelection, containerWidth, containerHeight }: PdfTextLayerProps) {
   const layerRef = useRef<HTMLDivElement>(null);
   const [spans, setSpans] = useState<TextSpan[]>([]);
 
@@ -112,7 +112,7 @@ export default function PdfTextLayer({ page, scale, onSelection, containerWidth,
       ))}
     </div>
   );
-}
+});
 
 function getContextText(range: Range, dir: 'before' | 'after'): string {
   try {

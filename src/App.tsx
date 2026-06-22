@@ -1,11 +1,12 @@
 import "./App.css";
 import LeftSidebar from "./components/LeftSidebar";
-import CenterViewer from "./components/CenterViewer";
-import AiSidebar from "./components/AiSidebar";
 import { ToastProvider, useToast } from "./components/Toast";
 import { useSettingsStore } from "./stores/settingsStore";
 import { useDocumentStore } from "./stores/documentStore";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from "react";
+
+const CenterViewer = lazy(() => import("./components/CenterViewer"));
+const AiSidebar = lazy(() => import("./components/AiSidebar"));
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { ProviderSettings } from "./stores/settingsStore";
@@ -142,7 +143,9 @@ function App() {
         {!leftCollapsed && <div className="splitter" role="separator" aria-valuenow={leftWidth} aria-valuemin={150} aria-valuemax={500} tabIndex={0} aria-label="Resize left sidebar"
           onMouseDown={(e) => startResize("left", e)} onKeyDown={(e) => { if (e.key === "ArrowLeft" || e.key === "ArrowRight") { e.preventDefault(); const el = leftRef.current; if (!el) return; const step = e.key === "ArrowLeft" ? -10 : 10; const w = Math.max(150, Math.min(500, (parseInt(el.style.width, 10) || leftWidth) + step)); el.style.width = `${w}px`; setLeftWidth(w); } }} />}
         <div className="center-viewer">
-          <CenterViewer />
+          <Suspense fallback={<div style={{ padding: 24, textAlign: "center", color: "var(--text-muted)", fontSize: 13 }}>Loading…</div>}>
+            <CenterViewer />
+          </Suspense>
         </div>
         {!rightCollapsed && <div className="splitter" role="separator" aria-valuenow={rightWidth} aria-valuemin={200} aria-valuemax={600} tabIndex={0} aria-label="Resize right sidebar"
           onMouseDown={(e) => startResize("right", e)} onKeyDown={(e) => { if (e.key === "ArrowLeft" || e.key === "ArrowRight") { e.preventDefault(); const el = rightRef.current; if (!el) return; const cur = parseInt(el.style.width, 10) || rightWidth; const w = Math.max(200, Math.min(600, cur + (e.key === "ArrowLeft" ? 10 : -10))); el.style.width = `${w}px`; setRightWidth(w); } }} />}
@@ -154,7 +157,11 @@ function App() {
           <button aria-label={rightCollapsed ? "Expand right sidebar" : "Collapse right sidebar"} className="collapse-btn collapse-right" onClick={() => setRightCollapsed(!rightCollapsed)}>
             {rightCollapsed ? "◀" : "▶"}
           </button>
-          {!rightCollapsed && <AiSidebar />}
+          {!rightCollapsed && (
+            <Suspense fallback={<div style={{ padding: 24, textAlign: "center", color: "var(--text-muted)", fontSize: 13 }}>Loading…</div>}>
+              <AiSidebar />
+            </Suspense>
+          )}
         </div>
       </div>
     </ToastProvider>

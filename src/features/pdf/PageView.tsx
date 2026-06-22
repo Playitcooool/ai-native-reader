@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import type { PDFDocumentProxy, PDFPageProxy } from "pdfjs-dist";
 import PdfTextLayer from "./PdfTextLayer";
 
@@ -26,7 +26,7 @@ type Phase = "loading" | "ready" | "error";
  *  - Error overlay on render failure
  *  - PdfTextLayer overlay for text selection
  */
-export default function PageView({
+export default memo(function PageView({
   pageNum,
   pdf,
   zoom,
@@ -299,4 +299,4 @@ export default function PageView({
       )}
     </div>
   );
-}
+});

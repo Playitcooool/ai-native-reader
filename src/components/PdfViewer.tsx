@@ -5,6 +5,7 @@ import "../pdfjs";
 import { useDocumentStore } from "../stores/documentStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import { useAiStore } from "../stores/aiStore";
+import { readFile } from "@tauri-apps/plugin-fs";
 import { invoke } from "@tauri-apps/api/core";
 import { extractToc, type TocNodeInput } from "../features/toc/tocTree";
 import { PageExtractionQueue } from "../features/pdf/pdfTextExtraction";
@@ -61,6 +62,7 @@ export default function PdfViewer({ filePath, documentId }: PdfViewerProps) {
   const extractionTotal = useRef(0);
   const [isSearching, setIsSearching] = useState(false);
   const [searchProgress, setSearchProgress] = useState(0);
+  const [loadProgress, setLoadProgress] = useState(0);
   const searchCancelledRef = useRef(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -132,11 +134,14 @@ export default function PdfViewer({ filePath, documentId }: PdfViewerProps) {
     let destroyed = false;
     const loadPdf = async () => {
       try {
-        const b64 = await invoke<string>("read_file_bytes", { filePath });
-        const binary = atob(b64);
-        const bytes = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-        const pdf = await pdfjsLib.getDocument({ data: bytes }).promise;
+        setLoadProgress(0);
+        const bytes = await readFile(filePath);
+        const loadingTask = pdfjsLib.getDocument({ data: bytes } as any);
+        // pdfjs supports onProgress callback via its internal event system
+        loadingTask.onProgress = (loaded: number, total: number) => {
+          if (total > 0) setLoadProgress(Math.round((loaded / total) * 100));
+        };
+        const pdf = await loadingTask.promise;
         if (destroyed) { pdf.destroy(); return; }
         pdfRef.current = pdf;
         setTotalPages(pdf.numPages);
@@ -160,7 +165,7 @@ export default function PdfViewer({ filePath, documentId }: PdfViewerProps) {
 
         const eq = new PageExtractionQueue(
           pdf, documentId,
-          (docId, pageNum, text) => invoke("save_page_text", { documentId: docId, pageNumber: pageNum, text }),
+          (docId, pages) => invoke("save_pages_text", { documentId: docId, pages }),
           (docId, pageNum) => invoke("mark_page_text_failed", { documentId: docId, pageNumber: pageNum }),
         );
         eq.onProgress = (done, total) => { setExtractionDone(done); extractionTotal.current = total; };
@@ -274,6 +279,12 @@ export default function PdfViewer({ filePath, documentId }: PdfViewerProps) {
   // Keyboard shortcuts
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
+      // Cmd/Ctrl+Shift+T toggles theme
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === "t" || e.key === "T")) {
+        e.preventDefault();
+        setTheme(theme === "light" ? "dark" : "light");
+        return;
+      }
       // Let system shortcuts (Cmd+C/V/A, etc.) pass through
       if (e.metaKey || e.ctrlKey) return;
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
@@ -297,7 +308,7 @@ export default function PdfViewer({ filePath, documentId }: PdfViewerProps) {
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [currentPage, zoom, goToPage, handleSetZoom, clearSelection, selectionText, handleExplain, showShortcuts]);
+  }, [currentPage, zoom, goToPage, handleSetZoom, clearSelection, selectionText, handleExplain, showShortcuts, theme, setTheme]);
 
   // Debounced zoom persistence
   useEffect(() => {
@@ -424,8 +435,24 @@ export default function PdfViewer({ filePath, documentId }: PdfViewerProps) {
         <button onClick={handleToggleSearch} title="Search (Ctrl+F)" aria-label="Toggle search" style={{ opacity: showSearch ? 1 : 0.6 }}>
           🔍
         </button>
-        <button onClick={() => setTheme(theme === "light" ? "dark" : "light")} title="Toggle dark/light theme" aria-label="Toggle theme">
-          {theme === "light" ? "🌙" : "☀️"}
+        <button onClick={() => setTheme(theme === "light" ? "dark" : "light")} title="Switch to light/dark mode (Cmd+Shift+T)" aria-label="Toggle theme" style={{ fontSize: 15 }}>
+          {theme === "light" ? (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+            </svg>
+          ) : (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="12" cy="12" r="5"/>
+              <line x1="12" y1="1" x2="12" y2="3"/>
+              <line x1="12" y1="21" x2="12" y2="23"/>
+              <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+              <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+              <line x1="1" y1="12" x2="3" y2="12"/>
+              <line x1="21" y1="12" x2="23" y2="12"/>
+              <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+              <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+            </svg>
+          )}
         </button>
         <span style={{ flex: 1 }} />
         <button onClick={() => handleSetZoom(zoom - 0.25)} disabled={zoom <= 0.25} aria-label="Zoom out">−</button>
@@ -492,7 +519,20 @@ export default function PdfViewer({ filePath, documentId }: PdfViewerProps) {
           </div>
         ) : pageCount === 0 ? (
           <div style={{ padding: 24, textAlign: "center", color: "var(--text-muted)" }}>
-            Loading PDF...
+            <div style={{ marginBottom: 12, fontSize: 13 }}>Loading PDF{loadProgress > 0 ? ` (${loadProgress}%)` : "..."}</div>
+            {loadProgress > 0 && (
+              <div style={{
+                width: 240, height: 6, margin: "0 auto",
+                background: "var(--bg-tertiary)", borderRadius: 3,
+                overflow: "hidden",
+              }}>
+                <div style={{
+                  width: `${loadProgress}%`, height: "100%",
+                  background: "var(--accent-color)", borderRadius: 3,
+                  transition: "width 0.15s ease",
+                }} />
+              </div>
+            )}
           </div>
         ) : (
           <div style={{ height: totalHeight, position: "relative", width: "100%" }}>

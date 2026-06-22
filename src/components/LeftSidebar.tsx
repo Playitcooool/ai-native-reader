@@ -154,8 +154,14 @@ function annotationsToMarkdown(annotations: Annotation[], docTitle: string | nul
   return md;
 }
 
+const TAB_STORAGE_KEY = "reader-left-sidebar-tab";
+
 export default function LeftSidebar() {
-  const [activeTab, setActiveTab] = useState<Tab>("recent");
+  const [activeTab, setActiveTab] = useState<Tab>(() => {
+    const saved = localStorage.getItem(TAB_STORAGE_KEY);
+    return (saved === "recent" || saved === "toc" || saved === "notes" || saved === "settings") ? saved : "recent";
+  });
+  useEffect(() => { localStorage.setItem(TAB_STORAGE_KEY, activeTab); }, [activeTab]);
   const {
     documents,
     currentDocument,
@@ -285,9 +291,14 @@ export default function LeftSidebar() {
                 <SkeletonBlock lines={[80, 45]} />
               </div>
             ) : documents.length === 0 ? (
-              <p style={{ color: "var(--text-muted)", fontSize: 14 }}>
-                No PDFs opened yet. Click "Open PDF" to get started.
-              </p>
+              <>
+                <p style={{ color: "var(--text-muted)", fontSize: 14 }}>
+                  No PDFs opened yet.
+                </p>
+                <p style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 4 }}>
+                  Tip: Press <kbd style={{ padding: "1px 4px", background: "var(--bg-tertiary)", borderRadius: 2, fontFamily: "inherit", border: "1px solid var(--border-color)" }}>Cmd+O</kbd> or click "Open PDF"
+                </p>
+              </>
             ) : libraryFolder ? (
               <div>
                 <FileTreeView
@@ -348,9 +359,14 @@ export default function LeftSidebar() {
                     <SkeletonBlock lines={[45, 25, 70]} />
                   </div>
                 ) : annotations.length === 0 ? (
-                  <p style={{ color: "var(--text-muted)", fontSize: 14 }}>
-                    No notes yet. Select text and save a highlight or note.
-                  </p>
+                  <>
+                    <p style={{ color: "var(--text-muted)", fontSize: 14 }}>
+                      No notes yet.
+                    </p>
+                    <p style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 4 }}>
+                      Select text and press <kbd style={{ padding: "1px 4px", background: "var(--bg-tertiary)", borderRadius: 2, fontFamily: "inherit", border: "1px solid var(--border-color)" }}>E</kbd> to explain, or use the menu to highlight/note
+                    </p>
+                  </>
                 ) : (
                   <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                     <button onClick={handleExportNotes} disabled={isExporting}

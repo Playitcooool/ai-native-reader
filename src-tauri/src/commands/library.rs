@@ -89,18 +89,23 @@ fn scan_folder_into_db(
     conn_mutex: &Mutex<rusqlite::Connection>,
     folder_path: &str,
 ) -> Result<i32, String> {
-    let conn = conn_mutex.lock().map_err(|e| e.to_string())?;
+    // Quick query under the lock to get existing paths
+    let existing: std::collections::HashSet<String> = {
+        let conn = conn_mutex.lock().map_err(|e| e.to_string())?;
+        let mut stmt = conn
+            .prepare("SELECT file_path FROM documents")
+            .map_err(|e| e.to_string())?;
+        let result: std::collections::HashSet<String> = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(|e| e.to_string())?
+            .filter_map(|r| r.ok())
+            .collect();
+        result
+        // lock released here when conn + stmt drop
+    };
 
-    let mut stmt = conn
-        .prepare("SELECT file_path FROM documents")
-        .map_err(|e| e.to_string())?;
-    let existing: std::collections::HashSet<String> = stmt
-        .query_map([], |row| row.get::<_, String>(0))
-        .map_err(|e| e.to_string())?
-        .filter_map(|r| r.ok())
-        .collect();
-
-    let mut imported = 0;
+    // Walk filesystem and compute hashes OUTSIDE the lock
+    let mut pending: Vec<(String, String, String)> = Vec::new(); // (path, filename, sha256)
     let mut dirs = vec![std::path::PathBuf::from(folder_path)];
     while let Some(dir) = dirs.pop() {
         let Ok(entries) = fs::read_dir(&dir) else { continue };
@@ -118,19 +123,28 @@ fn scan_folder_into_db(
                     .map(|n| n.to_string_lossy().to_string())
                     .unwrap_or_default();
                 let sha256 = documents::compute_sha256(&path_str)?;
-                let id = Uuid::new_v4().to_string();
-                let now = Utc::now().to_rfc3339();
-                conn.execute(
-                    "INSERT INTO documents (id, title, original_filename, file_path, file_sha256, page_count, created_at, updated_at, last_opened_at, parse_status, has_native_toc)
-                     VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?6, ?7, ?8, 'pending', 0)",
-                    rusqlite::params![id, filename, filename, path_str, sha256, now, now, now],
-                )
-                .map_err(|e| e.to_string())?;
-                imported += 1;
+                pending.push((path_str, filename, sha256));
             }
         }
     }
-    Ok(imported)
+
+    if pending.is_empty() {
+        return Ok(0);
+    }
+
+    // Acquire lock only for the INSERTs
+    let conn = conn_mutex.lock().map_err(|e| e.to_string())?;
+    let now = Utc::now().to_rfc3339();
+    for (path_str, filename, sha256) in &pending {
+        let id = Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO documents (id, title, original_filename, file_path, file_sha256, page_count, created_at, updated_at, last_opened_at, parse_status, has_native_toc)
+             VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?6, ?7, ?8, 'pending', 0)",
+            rusqlite::params![id, filename, filename, path_str, sha256, now, now, now],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    Ok(pending.len() as i32)
 }
 
 fn start_watcher(

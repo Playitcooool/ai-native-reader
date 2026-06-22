@@ -539,6 +539,7 @@ pub async fn run_ai_workflow(
     };
 
     // 2. Build context & read provider settings (single DB lock)
+    app.emit("ai-phase-change", serde_json::json!({"phase": "building_context"})).ok();
     let title = input.document_title.as_deref().unwrap_or("Untitled");
 
     let context_pack;
@@ -675,6 +676,7 @@ pub async fn run_ai_workflow(
     });
 
     // 4. Call AI provider with streaming
+    app.emit("ai-phase-change", serde_json::json!({"phase": "calling_ai"})).ok();
     let answer = provider::chat_completion_stream(
         &http_client,
         &base_url,

@@ -1,5 +1,36 @@
 use serde::{Deserialize, Serialize};
 use rusqlite::Connection;
+use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
+
+fn page_text_cache() -> &'static Mutex<HashMap<String, String>> {
+    static CACHE: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Seed the page text cache with a value (called from save_page_text commands).
+pub fn cache_page_text(document_id: &str, page_number: i64, text: &str) {
+    let key = format!("{}:{}", document_id, page_number);
+    if let Ok(mut cache) = page_text_cache().lock() {
+        // Simple bounded cache: only insert, never grow unbounded.
+        // Keep it simple: LRU not worth it for our access pattern.
+        if cache.len() < 200 {
+            // This is safe: HashMap keys are Copy-like (String → &str lookup via String)
+            let _ = cache.insert(key, text.to_string());
+        }
+    }
+}
+
+/// Update the cache helper — called before constructing context.
+fn lookup_page_text(document_id: &str, page: i64) -> Option<String> {
+    let key = format!("{}:{}", document_id, page);
+    if let Ok(cache) = page_text_cache().lock() {
+        if let Some(text) = cache.get(&key) {
+            return Some(text.clone());
+        }
+    }
+    None
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -114,11 +145,20 @@ fn get_toc_breadcrumb(
 }
 
 fn get_page_text(conn: &Connection, document_id: &str, page: i64) -> Option<String> {
+    // Check cache first
+    if let Some(text) = lookup_page_text(document_id, page) {
+        return Some(text);
+    }
+    // Fall through to DB
     if let Ok(mut stmt) = conn.prepare(
         "SELECT text FROM pages WHERE document_id = ?1 AND page_number = ?2 AND text_status = 'ready'",
     ) {
         if let Ok(mut rows) = stmt.query_map(rusqlite::params![document_id, page], |row| row.get::<_, String>(0)) {
-            return rows.next().and_then(|r| r.ok());
+            let text = rows.next().and_then(|r| r.ok());
+            if let Some(ref t) = text {
+                cache_page_text(document_id, page, t);
+            }
+            return text;
         }
     }
     None

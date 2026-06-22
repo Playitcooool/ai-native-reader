@@ -26,6 +26,9 @@ export default function CenterViewer() {
       <div className="empty-state">
         <h1 style={{ fontSize: "inherit", fontWeight: "inherit", margin: 0 }}>AI-Native PDF Reader</h1>
         <p>Open a PDF to start reading with AI.</p>
+        <p style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 12 }}>
+          Tip: Press <kbd style={{ padding: "1px 5px", background: "var(--bg-tertiary)", borderRadius: 3, fontFamily: "inherit", border: "1px solid var(--border-color)" }}>Cmd+O</kbd> to open, <kbd style={{ padding: "1px 5px", background: "var(--bg-tertiary)", borderRadius: 3, fontFamily: "inherit", border: "1px solid var(--border-color)" }}>E</kbd> to explain selected text
+        </p>
         <button
           onClick={() => handleOpenPdf().catch(() => addToast({ type: "error", message: "Failed to open PDF." }))}
           style={{

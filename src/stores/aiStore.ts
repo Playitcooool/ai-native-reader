@@ -17,6 +17,7 @@ interface AiState {
   messages: AiMessage[];
   sessionId: string | null;
   isGenerating: boolean;
+  aiPhase: string;
   streamingContent: string;
   lastWorkflowInput: Record<string, any> | null;
   setSessionId: (id: string | null) => void;
@@ -55,6 +56,7 @@ export const useAiStore = create<AiState>((set, get) => ({
   messages: [],
   sessionId: null,
   isGenerating: false,
+  aiPhase: "",
   streamingContent: "",
   lastWorkflowInput: null,
   setSessionId: (id) => set({ sessionId: id }),
@@ -64,19 +66,25 @@ export const useAiStore = create<AiState>((set, get) => ({
   setStreamingContent: (content) => set({ streamingContent: content }),
 
   runWorkflow: async (input) => {
-    set({ isGenerating: true, streamingContent: "", lastWorkflowInput: input as Record<string, any> });
+    set({ isGenerating: true, aiPhase: "building_context", streamingContent: "", lastWorkflowInput: input as Record<string, any> });
 
-    let unlisten: UnlistenFn | null = null;
+    let unlisten: UnlistenFn[] = [];
     cancelFlag = false;
 
     try {
+      // Listen for phase changes
+      const phaseUnlisten = await listen<{ phase: string }>("ai-phase-change", (event) => {
+        set({ aiPhase: event.payload.phase });
+      });
+      unlisten.push(phaseUnlisten);
       // Listen for streaming tokens from backend (debounced)
-      unlisten = await listen<{ token: string }>("ai-stream-chunk", (event) => {
+      const tokenUnlisten = await listen<{ token: string }>("ai-stream-chunk", (event) => {
         streamBuffer += event.payload.token;
         if (!streamTimer) {
           streamTimer = setTimeout(() => flushStreamBuffer(set), 50);
         }
       });
+      unlisten.push(tokenUnlisten);
 
       const result = await invoke<{
         message_id: string;
@@ -140,11 +148,11 @@ export const useAiStore = create<AiState>((set, get) => ({
       console.error("aiStore.runWorkflow failed:", err);
       throw err;
     } finally {
-      unlisten?.();
+      unlisten.forEach((u) => u());
       if (streamTimer) { clearTimeout(streamTimer); streamTimer = null; }
       streamBuffer = "";
       cancelFlag = false;
-      set({ isGenerating: false, streamingContent: "" });
+      set({ isGenerating: false, aiPhase: "", streamingContent: "" });
     }
   },
 

@@ -7,7 +7,7 @@ import { useToast } from "./Toast";
 
 export default function AiSidebar() {
   const { currentDocument, currentPage, setCurrentPage } = useDocumentStore();
-  const { messages, isGenerating, streamingContent, runWorkflow, cancelWorkflow, retryLastWorkflow, lastWorkflowInput } = useAiStore();
+  const { messages, isGenerating, aiPhase, streamingContent, runWorkflow, cancelWorkflow, retryLastWorkflow, lastWorkflowInput } = useAiStore();
   const [input, setInput] = useState("");
   const [rangeStart, setRangeStart] = useState("");
   const [rangeEnd, setRangeEnd] = useState("");
@@ -115,6 +115,25 @@ export default function AiSidebar() {
       }
     },
     [currentDocument, currentPage, savedNotes],
+  );
+
+  // Continue AI response
+  const handleContinue = useCallback(
+    async (msg: typeof messages[0]) => {
+      if (!currentDocument || isGenerating) return;
+      try {
+        await runWorkflow({
+          documentId: currentDocument.id,
+          documentTitle: currentDocument.title ?? undefined,
+          mode: "chapter_qa",
+          pageNumber: msg.page_number ?? currentPage,
+          question: "Continue from where you left off. Don't repeat what you already said.",
+        });
+      } catch (err) {
+        addToast({ type: "error", message: `Continue failed: ${err}` });
+      }
+    },
+    [currentDocument, currentPage, isGenerating, runWorkflow, addToast],
   );
 
   // Handle citation click
@@ -266,6 +285,10 @@ export default function AiSidebar() {
                   style={{ padding: "2px 6px", fontSize: 10, background: "transparent", color: savedNotes.has(msg.id) ? "var(--text-muted)" : "var(--accent-color)", border: `1px solid ${savedNotes.has(msg.id) ? "var(--border-color)" : "var(--accent-color)"}`, borderRadius: 3, cursor: "pointer" }}>
                   {savedNotes.has(msg.id) ? "✓ Saved" : "Save"}
                 </button>
+                <button onClick={() => handleContinue(msg)} disabled={isGenerating}
+                  style={{ padding: "2px 6px", fontSize: 10, background: "transparent", color: "var(--text-secondary)", border: "1px solid var(--border-color)", borderRadius: 3, cursor: "pointer" }}>
+                  Continue
+                </button>
               </div>
             )}
             {import.meta.env.DEV && msg.context_snapshot_json && (
@@ -300,7 +323,11 @@ export default function AiSidebar() {
         )}
         {isGenerating && !streamingContent && (
           <div style={{ padding: "8px", textAlign: "center", color: "var(--text-muted)", fontSize: 12 }}>
-            <span>Thinking…</span>
+            <span>
+              {aiPhase === "building_context" ? "Reading document…" :
+               aiPhase === "calling_ai" ? "Querying AI…" :
+               "Thinking…"}
+            </span>
             <button onClick={cancelWorkflow} title="Cancel"
               style={{ marginLeft: 8, padding: "2px 6px", background: "transparent", color: "var(--text-muted)", border: "1px solid var(--border-color)", borderRadius: 3, fontSize: 11, cursor: "pointer" }}>
               ✕

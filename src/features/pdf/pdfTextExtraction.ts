@@ -59,26 +59,49 @@ export async function extractPageText(
 export class PageExtractionQueue {
   private pdf: any;
   private documentId: string;
-  private saveFn: (docId: string, pageNum: number, text: string) => Promise<void>;
+  private saveBatchFn: (docId: string, pages: { pageNumber: number; text: string }[]) => Promise<void>;
   private failFn: (docId: string, pageNum: number) => Promise<void>;
   private queue: Map<number, number> = new Map(); // pageNumber → priority (lower = higher)
   private processing = false;
   private destroyed = false;
   private extracted = new Set<number>();
+  private buffer: { pageNumber: number; text: string }[] = [];
   private totalPages = 0;
+  private batchTimeout: ReturnType<typeof setTimeout> | null = null;
+  private readonly BATCH_SIZE = 20;
+  private readonly BATCH_MS = 3000;
   /** Optional progress callback: (extractedCount, totalPages) => void */
   onProgress: ((extracted: number, total: number) => void) | null = null;
 
   constructor(
     pdf: any,
     documentId: string,
-    saveFn: (docId: string, pageNum: number, text: string) => Promise<void>,
+    saveBatchFn: (docId: string, pages: { pageNumber: number; text: string }[]) => Promise<void>,
     failFn: (docId: string, pageNum: number) => Promise<void>,
   ) {
     this.pdf = pdf;
     this.documentId = documentId;
-    this.saveFn = saveFn;
+    this.saveBatchFn = saveBatchFn;
     this.failFn = failFn;
+  }
+
+  private flush(): void {
+    if (this.batchTimeout) { clearTimeout(this.batchTimeout); this.batchTimeout = null; }
+    if (this.buffer.length === 0) return;
+    const batch = this.buffer.splice(0);
+    this.saveBatchFn(this.documentId, batch).catch(() => {
+      // If batch save fails, fall back to saving one by one
+      batch.forEach((p) => {
+        this.saveBatchFn(this.documentId, [p]).catch(() =>
+          this.failFn(this.documentId, p.pageNumber)
+        );
+      });
+    });
+  }
+
+  private scheduleFlush(): void {
+    if (this.buffer.length >= this.BATCH_SIZE) { this.flush(); return; }
+    if (!this.batchTimeout) this.batchTimeout = setTimeout(() => this.flush(), this.BATCH_MS);
   }
 
   /**
@@ -124,6 +147,7 @@ export class PageExtractionQueue {
   destroy(): void {
     this.destroyed = true;
     this.queue.clear();
+    this.flush();
   }
 
   private async schedule(): Promise<void> {
@@ -142,12 +166,13 @@ export class PageExtractionQueue {
         const result = await extractPageText(this.pdf, pageNumber);
         if (this.destroyed) return;
         this.extracted.add(pageNumber);
-        await this.saveFn(this.documentId, pageNumber, result.text);
+        this.buffer.push({ pageNumber, text: result.text });
+        this.scheduleFlush();
         this.onProgress?.(this.extracted.size, this.totalPages);
       } catch (err) {
         if (this.destroyed) return;
         console.warn(`Failed to extract page ${pageNumber}:`, err);
-        await this.failFn(this.documentId, pageNumber).catch(() => {});
+        this.failFn(this.documentId, pageNumber).catch(() => {});
       }
 
       // Yield to UI thread every page
@@ -155,5 +180,10 @@ export class PageExtractionQueue {
     }
 
     this.processing = false;
+  }
+
+  /** Flush any pending batch (call on idle/teardown) */
+  flushPending(): void {
+    this.flush();
   }
 }
