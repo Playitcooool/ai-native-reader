@@ -144,6 +144,11 @@ fn run_migrations(conn: &Connection) -> Result<()> {
             FOREIGN KEY(document_id) REFERENCES documents(id) ON DELETE CASCADE
         );
 
+        CREATE TABLE IF NOT EXISTS library_folder (
+            id INTEGER PRIMARY KEY CHECK(id = 1),
+            folder_path TEXT NOT NULL
+        );
+
         CREATE TABLE IF NOT EXISTS provider_settings (
             id TEXT PRIMARY KEY,
             provider_type TEXT NOT NULL,
