@@ -17,4 +17,9 @@ describe("visible range offsets", () => {
   it("looks up page index from a page top", () => {
     expect(findPageIndexAtOffset(tops, tops[2])).toBe(2);
   });
+
+  it("looks up page index from the viewport center", () => {
+    const center = 80 + 60;
+    expect(findPageIndexAtOffset(tops, center)).toBe(1);
+  });
 });

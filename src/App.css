@@ -124,11 +124,189 @@
 .center-viewer {
   flex: 1;
   min-width: 200px;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  background: var(--bg-tertiary);
+  background: var(--reader-bg, var(--bg-tertiary));
   overflow: hidden;
   position: relative;
+}
+
+.reader-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+  position: relative;
+  background: var(--reader-bg, var(--bg-tertiary));
+}
+
+.library-shell .sidebar-left {
+  width: 300px;
+}
+
+.reader-chrome {
+  position: fixed;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 30;
+  display: flex;
+  gap: 8px;
+  padding: 6px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 75%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-primary) 86%, transparent);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
+  backdrop-filter: blur(18px);
+}
+
+.reader-chrome button,
+.library-actions button {
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border-radius: 999px;
+  padding: 7px 13px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.reader-chrome button:hover,
+.library-actions button:hover,
+.book-card:hover {
+  border-color: var(--accent-color);
+}
+
+.drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.reader-drawer,
+.ai-sheet {
+  position: absolute;
+  top: 14px;
+  bottom: 14px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  box-shadow: 0 18px 55px rgba(0, 0, 0, 0.22);
+  overflow: hidden;
+}
+
+.reader-drawer {
+  left: 14px;
+  width: min(360px, calc(100vw - 28px));
+}
+
+.ai-sheet {
+  right: 14px;
+  width: min(430px, calc(100vw - 28px));
+}
+
+.sheet-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 3;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-size: 18px;
+  line-height: 1;
+}
+
+.library-view {
+  flex: 1;
+  overflow: auto;
+  padding: 48px clamp(24px, 5vw, 72px);
+  background: var(--bg-primary);
+}
+
+.library-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-end;
+  margin-bottom: 28px;
+}
+
+.library-header h1 {
+  font-size: 34px;
+  line-height: 1.1;
+  margin: 0 0 6px;
+}
+
+.library-header p {
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.library-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.book-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 18px;
+}
+
+.book-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  min-height: 230px;
+  padding: 0;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  text-align: left;
+  overflow: hidden;
+}
+
+.book-cover {
+  display: grid;
+  place-items: end start;
+  height: 160px;
+  padding: 14px;
+  background:
+    linear-gradient(135deg, rgba(37, 99, 235, 0.16), transparent 42%),
+    linear-gradient(160deg, var(--bg-secondary), var(--bg-tertiary));
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.book-title {
+  padding: 0 12px;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.book-meta {
+  padding: 0 12px 12px;
+  color: var(--text-muted);
+  font-size: 12px;
+  margin-top: auto;
 }
 
 .empty-state {

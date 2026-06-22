@@ -6,21 +6,20 @@ import { useDocumentStore } from "../stores/documentStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import { useAiStore, setOcrPdfRef } from "../stores/aiStore";
 import { invoke } from "@tauri-apps/api/core";
-import { readFile } from "@tauri-apps/plugin-fs";
 import { extractToc, type TocNodeInput } from "../features/toc/tocTree";
 import { PageExtractionQueue } from "../features/pdf/pdfTextExtraction";
 import SelectionMenu from "../features/pdf/SelectionMenu";
 import PageView from "../features/pdf/PageView";
-import { useVisibleRange } from "../features/pdf/useVisibleRange";
+import { findPageIndexAtOffset, useVisibleRange } from "../features/pdf/useVisibleRange";
 import { useToast } from "./Toast";
 import ShortcutsModal from "./ShortcutsModal";
 
 interface PdfViewerProps {
-  filePath: string;
   documentId: string;
+  onOpenAi?: () => void;
 }
 
-export default function PdfViewer({ filePath, documentId }: PdfViewerProps) {
+export default function PdfViewer({ documentId, onOpenAi }: PdfViewerProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectionText, setSelectionText] = useState("");
@@ -49,8 +48,11 @@ export default function PdfViewer({ filePath, documentId }: PdfViewerProps) {
   const { addToast } = useToast();
   const extractionRef = useRef<PageExtractionQueue | null>(null);
   const progScrollRef = useRef(false);
+  const scrollPageUpdateRef = useRef<number | null>(null);
   const pageDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const zoomAnchorRef = useRef<{ oldScrollTop: number; oldZoom: number } | null>(null);
+  const lastJumpKeyRef = useRef("");
+  const pageTopsRef = useRef<number[]>([]);
 
   // Search state
   const [showSearch, setShowSearch] = useState(false);
@@ -82,39 +84,54 @@ export default function PdfViewer({ filePath, documentId }: PdfViewerProps) {
     scrollContainerRef: scrollRef as React.RefObject<HTMLElement | null>,
   });
 
+  pageTopsRef.current = pageTops;
+
   // Programmatic scroll (TOC, citations, keyboard arrows, doc restore)
   // MUST be declared before the page detection effect so progScrollRef is set
   // before page detection checks it, preventing oscillation on document restore.
   useEffect(() => {
-    if (!currentDocument || heights.length === 0) return;
+    if (!currentDocument || heights.length === 0 || pageCount === 0) return;
     const container = scrollRef.current;
     if (!container) return;
+    const page = Math.max(1, Math.min(pageCount, currentPage));
+    if (page !== currentPage) {
+      setCurrentPage(page);
+      return;
+    }
+    if (scrollPageUpdateRef.current === currentPage) {
+      scrollPageUpdateRef.current = null;
+      return;
+    }
+    scrollPageUpdateRef.current = null;
+    const jumpKey = `${documentId}:${page}`;
+    if (lastJumpKeyRef.current === jumpKey) return;
+    lastJumpKeyRef.current = jumpKey;
     progScrollRef.current = true;
-    container.scrollTop = pageTops[currentPage - 1] ?? 0;
+    container.scrollTop = pageTopsRef.current[page - 1] ?? 0;
     const raf = requestAnimationFrame(() => {
       progScrollRef.current = false;
     });
-    return () => cancelAnimationFrame(raf);
-  }, [currentPage, heights.length, pageTops]);
+    return () => {
+      cancelAnimationFrame(raf);
+      progScrollRef.current = false;
+    };
+  }, [currentDocument, currentPage, documentId, heights.length, pageCount, setCurrentPage]);
 
   // Derive current page from scroll position — debounced to store
   useEffect(() => {
     const container = scrollRef.current;
     if (!container || heights.length === 0) return;
     const center = container.scrollTop + container.clientHeight / 2;
-    for (let i = 0; i < pageTops.length; i++) {
-      if (center < (pageTops[i] ?? 0) + (heights[i] ?? 0)) {
-        const page = i + 1;
-        if (page !== currentPage && !progScrollRef.current) {
-          if (pageDebounceRef.current) clearTimeout(pageDebounceRef.current);
-          pageDebounceRef.current = setTimeout(() => {
-            setCurrentPage(page);
-          }, 150);
-        }
-        break;
-      }
+    const page = findPageIndexAtOffset(pageTops, center) + 1;
+    if (page !== currentPage && !progScrollRef.current) {
+      scrollPageUpdateRef.current = page;
+      setCurrentPage(page);
+      if (pageDebounceRef.current) clearTimeout(pageDebounceRef.current);
+      pageDebounceRef.current = setTimeout(() => {
+        invoke("update_last_page", { documentId, pageNumber: page }).catch(() => {});
+      }, 150);
     }
-  }, [visibleRange, heights, pageTops, currentPage, setCurrentPage]);
+  }, [visibleRange, heights.length, pageTops, currentPage, setCurrentPage, documentId]);
 
   // Dispose debounce on unmount
   useEffect(() => {
@@ -129,8 +146,8 @@ export default function PdfViewer({ filePath, documentId }: PdfViewerProps) {
     const loadPdf = async () => {
       try {
         setLoadProgress(0);
-        const bytes = await readFile(filePath);
-        const loadingTask = pdfjsLib.getDocument({ data: bytes } as any);
+        const data = await invoke<number[] | Uint8Array>("read_document_pdf", { documentId });
+        const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(data) });
         // pdfjs supports onProgress callback via its internal event system
         loadingTask.onProgress = (loaded: number, total: number) => {
           if (total > 0) setLoadProgress(Math.round((loaded / total) * 100));
@@ -178,7 +195,7 @@ export default function PdfViewer({ filePath, documentId }: PdfViewerProps) {
       pdfRef.current?.destroy();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filePath]);
+  }, [documentId]);
 
   // Update extraction priority when visible range changes
   useEffect(() => {
@@ -257,6 +274,7 @@ export default function PdfViewer({ filePath, documentId }: PdfViewerProps) {
       if (!pdf) return;
       const p = Math.max(1, Math.min(pdf.numPages, page));
       if (p !== currentPage) {
+        if (pageDebounceRef.current) clearTimeout(pageDebounceRef.current);
         scrollToPage(p);
         clearSelection();
         invoke("update_last_page", { documentId, pageNumber: p }).catch(() => {});
@@ -385,7 +403,7 @@ export default function PdfViewer({ filePath, documentId }: PdfViewerProps) {
   }, [visibleRange]);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", width: "100%" }}>
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0, width: "100%" }}>
       {/* Toolbar */}
       <div
         style={{
@@ -397,6 +415,7 @@ export default function PdfViewer({ filePath, documentId }: PdfViewerProps) {
         <button onClick={() => { handleOpenPdf().catch(() => addToast({ type: "error", message: "Failed to open PDF." })); clearSelection(); }} title="Open PDF (Cmd+O)" style={{ fontWeight: 600 }}>
           📂 Open
         </button>
+        <button onClick={onOpenAi} title="Ask AI about this document">Ask</button>
         <span style={{ color: "var(--border-color)" }}>|</span>
         <button onClick={() => goToPage(currentPage - 1)} disabled={currentPage <= 1} aria-label="Previous page">◀ Prev</button>
         <span>
@@ -491,10 +510,11 @@ export default function PdfViewer({ filePath, documentId }: PdfViewerProps) {
         ref={scrollRef}
         style={{
           flex: 1,
+          minHeight: 0,
           overflowY: "auto",
           overflowX: "hidden",
           position: "relative",
-          background: "var(--bg-tertiary)",
+          background: "var(--reader-bg)",
         }}
       >
         {error ? (
@@ -549,6 +569,7 @@ export default function PdfViewer({ filePath, documentId }: PdfViewerProps) {
           position={selectionPos}
           onClose={clearSelection}
           onAsk={(text) => {
+            onOpenAi?.();
             navigator.clipboard.writeText(text).catch(() => {});
             addToast({ type: "info", message: "Text copied — paste it in the AI chat to ask about it." });
           }}

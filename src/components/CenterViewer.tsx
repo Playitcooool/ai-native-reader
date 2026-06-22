@@ -2,8 +2,8 @@ import { useDocumentStore } from "../stores/documentStore";
 import PdfViewer from "./PdfViewer";
 import { useToast } from "./Toast";
 
-export default function CenterViewer() {
-  const { currentDocument, handleOpenPdf } = useDocumentStore();
+export default function CenterViewer({ onOpenAi }: { onOpenAi?: () => void }) {
+  const { documents, currentDocument, handleOpenPdf, handleOpenFolder, setCurrentDocument } = useDocumentStore();
   const { addToast } = useToast();
 
   if (currentDocument) {
@@ -14,36 +14,47 @@ export default function CenterViewer() {
         </h1>
         <PdfViewer
           key={currentDocument.id}
-          filePath={currentDocument.file_path}
           documentId={currentDocument.id}
+          onOpenAi={onOpenAi}
         />
       </>
     );
   }
 
   return (
-    <div className="center-viewer">
-      <div className="empty-state">
-        <h1 style={{ fontSize: "inherit", fontWeight: "inherit", margin: 0 }}>AI-Native PDF Reader</h1>
-        <p>Open a PDF to start reading with AI.</p>
-        <p style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 12 }}>
-          Tip: Press <kbd style={{ padding: "1px 5px", background: "var(--bg-tertiary)", borderRadius: 3, fontFamily: "inherit", border: "1px solid var(--border-color)" }}>Cmd+O</kbd> to open, <kbd style={{ padding: "1px 5px", background: "var(--bg-tertiary)", borderRadius: 3, fontFamily: "inherit", border: "1px solid var(--border-color)" }}>E</kbd> to explain selected text
-        </p>
-        <button
-          onClick={() => handleOpenPdf().catch(() => addToast({ type: "error", message: "Failed to open PDF." }))}
-          style={{
-            marginTop: 16,
-            padding: "10px 24px",
-            background: "var(--accent-color)",
-            color: "#fff",
-            border: "none",
-            borderRadius: 6,
-            fontSize: 14,
-            fontWeight: 500,
-          }}
-        >
-          Open PDF
-        </button>
+    <div className="library-view">
+      <div className="library-header">
+        <div>
+          <h1>Library</h1>
+          <p>{documents.length ? "Pick up where you left off." : "Open a PDF or import a folder."}</p>
+        </div>
+        <div className="library-actions">
+          <button onClick={() => handleOpenPdf().catch(() => addToast({ type: "error", message: "Failed to open PDF." }))}>
+            Open PDF
+          </button>
+          <button onClick={() => handleOpenFolder().catch(() => addToast({ type: "error", message: "Failed to open folder." }))}>
+            Import Folder
+          </button>
+        </div>
+      </div>
+
+      <div className="book-grid">
+        {documents.length === 0 ? (
+          <div className="empty-state">
+            <h2>No books yet</h2>
+            <p>Use Open PDF or Import Folder to add your first document.</p>
+          </div>
+        ) : (
+          documents.map((doc) => (
+            <button key={doc.id} className="book-card" onClick={() => setCurrentDocument(doc)}>
+              <span className="book-cover" aria-hidden="true">PDF</span>
+              <span className="book-title">{doc.title ?? doc.original_filename}</span>
+              <span className="book-meta">
+                {doc.last_page ? `Page ${doc.last_page}` : doc.page_count ? `${doc.page_count} pages` : "Ready"}
+              </span>
+            </button>
+          ))
+        )}
       </div>
     </div>
   );

@@ -86,6 +86,7 @@ pub fn run() {
             commands::documents::import_pdf,
             commands::documents::get_documents,
             commands::documents::get_document,
+            commands::documents::read_document_pdf,
             commands::documents::update_last_page,
             commands::documents::update_last_zoom,
             commands::documents::update_page_count,

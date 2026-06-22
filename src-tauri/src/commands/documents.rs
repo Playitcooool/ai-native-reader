@@ -125,6 +125,24 @@ pub fn get_document(db: State<DbState>, document_id: String) -> Result<Option<Do
 }
 
 #[tauri::command]
+pub fn read_document_pdf(db: State<DbState>, document_id: String) -> Result<Vec<u8>, String> {
+    let file_path: String = {
+        let conn = db.0.lock().map_err(|e| e.to_string())?;
+        conn.query_row(
+            "SELECT file_path FROM documents WHERE id = ?1",
+            rusqlite::params![document_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| match e {
+            rusqlite::Error::QueryReturnedNoRows => "Document not found".to_string(),
+            _ => e.to_string(),
+        })?
+    };
+
+    fs::read(&file_path).map_err(|e| format!("Failed to read PDF at {}: {}", file_path, e))
+}
+
+#[tauri::command]
 pub fn update_last_page(
     db: State<DbState>,
     document_id: String,
