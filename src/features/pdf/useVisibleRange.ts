@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 export interface UseVisibleRangeOptions {
   pageCount: number;
@@ -11,6 +11,7 @@ export interface UseVisibleRangeResult {
   visibleRange: [number, number];
   totalHeight: number;
   visibleTop: number;
+  pageTops: number[];
 }
 
 export function useVisibleRange({
@@ -22,13 +23,12 @@ export function useVisibleRange({
   const [range, setRange] = useState<[number, number]>([0, 0]);
   const rafRef = useRef<number | null>(null);
 
-  // Build cumulative offsets
-  const cumulativeOffsets = useRef<number[]>([]);
-  cumulativeOffsets.current = buildCumulativeOffsets(pageHeights, pageCount);
+  const pageTops = useMemo(
+    () => buildCumulativeOffsets(pageHeights, pageCount),
+    [pageHeights, pageCount],
+  );
 
-  const totalHeight = pageCount > 0
-    ? (cumulativeOffsets.current[pageCount - 1] ?? 0) + (pageHeights[pageCount - 1] ?? 0)
-    : 0;
+  const totalHeight = getTotalHeight(pageTops, pageHeights, pageCount);
 
   useEffect(() => {
     const container = scrollContainerRef.current;
@@ -50,28 +50,9 @@ export function useVisibleRange({
       const el = scrollContainerRef.current;
       if (!el) return;
       const { scrollTop, clientHeight } = el;
-      const offsets = cumulativeOffsets.current;
-      if (offsets.length === 0) return;
+      if (pageTops.length === 0) return;
 
-      // Binary search: first page whose offset is > scrollTop
-      let lo = 0, hi = offsets.length - 1;
-      while (lo < hi) {
-        const mid = (lo + hi + 1) >> 1;
-        if (offsets[mid] <= scrollTop) lo = mid;
-        else hi = mid - 1;
-      }
-      const firstIdx = lo;
-
-      // Walk forward to find last visible page
-      const bottom = scrollTop + clientHeight;
-      let lastIdx = firstIdx;
-      while (lastIdx < pageHeights.length - 1 && (cumulativeOffsets.current[lastIdx + 1] ?? 0) < bottom) {
-        lastIdx++;
-      }
-
-      const start = Math.max(0, firstIdx - bufferPages);
-      const end = Math.min(pageCount - 1, lastIdx + bufferPages);
-      setRange([start, end]);
+      setRange(computeVisibleRange(scrollTop, clientHeight, pageHeights, pageTops, pageCount, bufferPages));
     };
 
     container.addEventListener("scroll", handleScroll, { passive: true });
@@ -85,16 +66,17 @@ export function useVisibleRange({
       window.removeEventListener("resize", handleResize);
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
     };
-  }, [pageCount, pageHeights, bufferPages, scrollContainerRef]);
+  }, [pageCount, pageHeights, pageTops, bufferPages, scrollContainerRef]);
 
   return {
     visibleRange: range,
     totalHeight,
-    visibleTop: range[0] > 0 ? (cumulativeOffsets.current[range[0]] ?? 0) : 0,
+    visibleTop: range[0] > 0 ? (pageTops[range[0]] ?? 0) : 0,
+    pageTops,
   };
 }
 
-function buildCumulativeOffsets(heights: number[], count: number): number[] {
+export function buildCumulativeOffsets(heights: number[], count: number): number[] {
   const offsets: number[] = new Array(count);
   let acc = 0;
   for (let i = 0; i < count; i++) {
@@ -102,4 +84,39 @@ function buildCumulativeOffsets(heights: number[], count: number): number[] {
     acc += heights[i] ?? 0;
   }
   return offsets;
+}
+
+export function getTotalHeight(offsets: number[], heights: number[], count: number): number {
+  return count > 0 ? (offsets[count - 1] ?? 0) + (heights[count - 1] ?? 0) : 0;
+}
+
+export function findPageIndexAtOffset(offsets: number[], scrollTop: number): number {
+  let lo = 0, hi = offsets.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (offsets[mid] <= scrollTop) lo = mid;
+    else hi = mid - 1;
+  }
+  return lo;
+}
+
+export function computeVisibleRange(
+  scrollTop: number,
+  clientHeight: number,
+  pageHeights: number[],
+  pageTops: number[],
+  pageCount: number,
+  bufferPages: number,
+): [number, number] {
+  if (pageCount === 0 || pageTops.length === 0) return [0, 0];
+  const firstIdx = findPageIndexAtOffset(pageTops, scrollTop);
+  const bottom = scrollTop + clientHeight;
+  let lastIdx = firstIdx;
+  while (lastIdx < pageHeights.length - 1 && (pageTops[lastIdx + 1] ?? 0) < bottom) {
+    lastIdx++;
+  }
+  return [
+    Math.max(0, firstIdx - bufferPages),
+    Math.min(pageCount - 1, lastIdx + bufferPages),
+  ];
 }

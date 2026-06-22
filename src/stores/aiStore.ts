@@ -150,8 +150,10 @@ export const useAiStore = create<AiState>((set, get) => ({
         : [input.pageNumber];
       for (const p of pages) {
         if (cancelFlag) return null;
+        set({ aiPhase: "waiting_for_text" });
         await waitForPageText(input.documentId, p);
       }
+      set({ aiPhase: "building_context" });
 
       const result = await invoke<{
         message_id: string;

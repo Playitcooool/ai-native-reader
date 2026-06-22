@@ -6,6 +6,7 @@ import { useDocumentStore } from "../stores/documentStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import { useAiStore, setOcrPdfRef } from "../stores/aiStore";
 import { invoke } from "@tauri-apps/api/core";
+import { readFile } from "@tauri-apps/plugin-fs";
 import { extractToc, type TocNodeInput } from "../features/toc/tocTree";
 import { PageExtractionQueue } from "../features/pdf/pdfTextExtraction";
 import SelectionMenu from "../features/pdf/SelectionMenu";
@@ -60,8 +61,8 @@ export default function PdfViewer({ filePath, documentId }: PdfViewerProps) {
   const [extractionDone, setExtractionDone] = useState(0);
   const extractionTotal = useRef(0);
   const [isSearching, setIsSearching] = useState(false);
-  const [searchProgress, setSearchProgress] = useState(0);
   const [loadProgress, setLoadProgress] = useState(0);
+  const [indexedPageCount, setIndexedPageCount] = useState(0);
   const searchCancelledRef = useRef(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -74,7 +75,7 @@ export default function PdfViewer({ filePath, documentId }: PdfViewerProps) {
   );
 
   // Visible range from virtual scroll
-  const { visibleRange, totalHeight } = useVisibleRange({
+  const { visibleRange, totalHeight, pageTops } = useVisibleRange({
     pageCount,
     pageHeights: heights,
     bufferPages: 2,
@@ -89,26 +90,20 @@ export default function PdfViewer({ filePath, documentId }: PdfViewerProps) {
     const container = scrollRef.current;
     if (!container) return;
     progScrollRef.current = true;
-    let acc = 0;
-    for (let i = 0; i < currentPage - 1 && i < heights.length; i++) {
-      acc += heights[i];
-    }
-    container.scrollTop = acc;
+    container.scrollTop = pageTops[currentPage - 1] ?? 0;
     const raf = requestAnimationFrame(() => {
       progScrollRef.current = false;
     });
     return () => cancelAnimationFrame(raf);
-  }, [currentPage, heights.length]);
+  }, [currentPage, heights.length, pageTops]);
 
   // Derive current page from scroll position — debounced to store
   useEffect(() => {
     const container = scrollRef.current;
     if (!container || heights.length === 0) return;
     const center = container.scrollTop + container.clientHeight / 2;
-    let acc = 0;
-    for (let i = 0; i < heights.length; i++) {
-      acc += heights[i];
-      if (center < acc) {
+    for (let i = 0; i < pageTops.length; i++) {
+      if (center < (pageTops[i] ?? 0) + (heights[i] ?? 0)) {
         const page = i + 1;
         if (page !== currentPage && !progScrollRef.current) {
           if (pageDebounceRef.current) clearTimeout(pageDebounceRef.current);
@@ -119,7 +114,7 @@ export default function PdfViewer({ filePath, documentId }: PdfViewerProps) {
         break;
       }
     }
-  }, [visibleRange, heights, currentPage, setCurrentPage]);
+  }, [visibleRange, heights, pageTops, currentPage, setCurrentPage]);
 
   // Dispose debounce on unmount
   useEffect(() => {
@@ -134,10 +129,7 @@ export default function PdfViewer({ filePath, documentId }: PdfViewerProps) {
     const loadPdf = async () => {
       try {
         setLoadProgress(0);
-        const b64 = await invoke<string>("read_file_bytes", { filePath });
-        const binary = atob(b64);
-        const bytes = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+        const bytes = await readFile(filePath);
         const loadingTask = pdfjsLib.getDocument({ data: bytes } as any);
         // pdfjs supports onProgress callback via its internal event system
         loadingTask.onProgress = (loaded: number, total: number) => {
@@ -173,7 +165,7 @@ export default function PdfViewer({ filePath, documentId }: PdfViewerProps) {
         );
         eq.onProgress = (done, total) => { setExtractionDone(done); extractionTotal.current = total; };
         extractionRef.current = eq;
-        eq.setCurrentPage(1, pdf.numPages);
+        eq.setCurrentPage(currentPage, pdf.numPages);
         setTimeout(() => eq.enqueueAll(pdf.numPages), 2000);
       } catch (err) {
         if (!destroyed) setError(`Failed to load PDF: ${err}`);
@@ -194,6 +186,13 @@ export default function PdfViewer({ filePath, documentId }: PdfViewerProps) {
       extractionRef.current.setCurrentPage(currentPage, pageCount);
     }
   }, [currentPage, pageCount]);
+
+  useEffect(() => {
+    if (!documentId) return;
+    invoke<number>("count_indexed_pages", { documentId })
+      .then(setIndexedPageCount)
+      .catch(() => {});
+  }, [documentId, extractionDone]);
 
   // Active TOC node — derive from currentPage
   useEffect(() => {
@@ -334,44 +333,24 @@ export default function PdfViewer({ filePath, documentId }: PdfViewerProps) {
     }
   }, [zoom, heights]);
 
-  // Search across all pages via pdfjs text content
   const performSearch = useCallback(async (query: string) => {
-    const pdf = pdfRef.current;
-    if (!pdf || !query.trim()) { setSearchResults([]); return; }
+    if (!query.trim() || indexedPageCount === 0) { setSearchResults([]); return; }
     searchCancelledRef.current = false;
     setIsSearching(true);
-    setSearchProgress(1);
-    const results: Array<{ pageNum: number; context: string }> = [];
-    const q = query.toLowerCase();
-
-    for (let i = 1; i <= pdf.numPages; i++) {
-      if (searchCancelledRef.current) break;
-      try {
-        const page = await pdf.getPage(i);
-        const tc = await page.getTextContent();
-        const text = tc.items.map((item: any) => item.str).join(" ");
-        page.cleanup();
-
-        let pos = text.toLowerCase().indexOf(q);
-        while (pos >= 0) {
-          const start = Math.max(0, pos - 40);
-          const end = Math.min(text.length, pos + q.length + 40);
-          const snippet = (start > 0 ? "…" : "") + text.slice(start, end).trim() + (end < text.length ? "…" : "");
-          results.push({ pageNum: i, context: snippet });
-          pos = text.toLowerCase().indexOf(q, pos + 1);
-        }
-      } catch { /* skip unrenderable pages */ }
-      // Yield every 3 pages to keep UI responsive for long PDFs
-      if (i % 3 === 0) { setSearchProgress(i); await new Promise((r) => setTimeout(r, 0)); }
-    }
-
-    if (!searchCancelledRef.current) {
+    try {
+      const results = await invoke<Array<{ pageNum: number; context: string }>>("search_pages_text", {
+        documentId,
+        query,
+        limit: 200,
+      });
+      if (searchCancelledRef.current) return;
       setSearchResults(results);
       setCurrentResultIdx(0);
       if (results.length > 0) scrollToPage(results[0].pageNum);
+    } finally {
+      setIsSearching(false);
     }
-    setIsSearching(false);
-  }, [scrollToPage]);
+  }, [documentId, indexedPageCount, scrollToPage]);
 
   // Cancel search on unmount
   useEffect(() => {
@@ -430,11 +409,6 @@ export default function PdfViewer({ filePath, documentId }: PdfViewerProps) {
           / {pageCount || "?"}
         </span>
         <button onClick={() => goToPage(currentPage + 1)} disabled={!pdfRef.current || currentPage >= pageCount} aria-label="Next page">Next ▶</button>
-        {extractionDone > 0 && extractionDone < extractionTotal.current && (
-          <span style={{ fontSize: 11, color: "var(--text-muted)", whiteSpace: "nowrap" }}>
-            Indexing {extractionDone}/{extractionTotal.current}
-          </span>
-        )}
         <button onClick={handleToggleSearch} title="Search (Ctrl+F)" aria-label="Toggle search" style={{ opacity: showSearch ? 1 : 0.6 }}>
           🔍
         </button>
@@ -483,10 +457,17 @@ export default function PdfViewer({ filePath, documentId }: PdfViewerProps) {
               borderRadius: 3, fontSize: 13, background: "var(--bg-primary)", color: "var(--text-primary)",
             }}
           />
-          <button onClick={() => performSearch(searchQuery)} disabled={isSearching || !searchQuery.trim()}
+          <button onClick={() => performSearch(searchQuery)} disabled={isSearching || !searchQuery.trim() || indexedPageCount === 0}
             style={{ padding: "4px 10px", background: "var(--accent-color)", color: "#fff", border: "none", borderRadius: 3, fontSize: 12, fontWeight: 500, cursor: "pointer" }}>
-            {isSearching ? `Searching ${searchProgress}/${pageCount}` : "Search"}
+            {isSearching ? "Searching" : "Search"}
           </button>
+          <span style={{ color: "var(--text-muted)", fontSize: 12, whiteSpace: "nowrap" }}>
+            {indexedPageCount === 0
+              ? "Waiting for index"
+              : extractionDone < extractionTotal.current
+                ? `Indexed results (${indexedPageCount}/${pageCount})`
+                : `Indexed results (${indexedPageCount})`}
+          </span>
           {!isSearching && searchResults.length > 0 && (
             <>
               <span style={{ color: "var(--text-secondary)", fontSize: 12, whiteSpace: "nowrap" }}>
@@ -541,16 +522,13 @@ export default function PdfViewer({ filePath, documentId }: PdfViewerProps) {
           <div style={{ height: totalHeight, position: "relative", width: "100%" }}>
             {pageNumbers.map((pageNum) => {
               const idx = pageNum - 1;
-              const top = idx > 0
-                ? heights.slice(0, idx).reduce((a, b) => a + b, 0)
-                : 0;
               return (
                 <PageView
                   key={pageNum}
                   pageNum={pageNum}
                   pdf={pdfRef.current!}
                   zoom={zoom}
-                  top={top}
+                  top={pageTops[idx] ?? 0}
                   width={pageWidthAtZoom}
                   height={pageHeightAtZoom}
                   onSelection={handleTextSelection}

@@ -227,6 +227,15 @@ export default function AiSidebar() {
     );
   }
 
+  const contextStatus = lastWorkflowInput
+    ? `p.${lastWorkflowInput.pageNumber} · ${modeLabel(lastWorkflowInput.mode)} · ${
+        aiPhase === "waiting_for_text" ? "waiting for text/OCR" :
+        aiPhase === "building_context" ? "building context" :
+        aiPhase === "calling_ai" ? "querying AI" :
+        "thinking"
+      }`
+    : "";
+
   return (
     <div className="sidebar-inner">
       <div style={{
@@ -339,11 +348,7 @@ export default function AiSidebar() {
         )}
         {isGenerating && !streamingContent && (
           <div style={{ padding: "8px", textAlign: "center", color: "var(--text-muted)", fontSize: 12 }}>
-            <span>
-              {aiPhase === "building_context" ? "Reading document…" :
-               aiPhase === "calling_ai" ? "Querying AI…" :
-               "Thinking…"}
-            </span>
+            <span>{contextStatus || "Thinking..."}</span>
             <button onClick={cancelWorkflow} title="Cancel"
               style={{ ...ghostButton, marginLeft: 8, color: "var(--text-muted)" }}>
               ✕
@@ -395,4 +400,11 @@ function extractText(children: any): string {
     return children.map(extractText).join("");
   if (children?.props?.children) return extractText(children.props.children);
   return "";
+}
+
+function modeLabel(mode: string): string {
+  if (mode === "page_summary") return "page";
+  if (mode === "range_summary") return "range";
+  if (mode === "selection_explain") return "selection";
+  return "question";
 }

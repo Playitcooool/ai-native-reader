@@ -15,6 +15,13 @@ pub struct PageText {
     pub char_count: i64,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PageSearchResult {
+    pub page_num: i64,
+    pub context: String,
+}
+
 fn page_row_id(document_id: &str, page_number: i64) -> String {
     // Deterministic ID from document_id + page_number so upserts don't orphan FKs
     format!("p_{}_{}", document_id, page_number)
@@ -104,6 +111,84 @@ pub fn get_pages_text(
         .collect();
 
     Ok(pages)
+}
+
+#[tauri::command]
+pub fn count_indexed_pages(db: State<DbState>, document_id: String) -> Result<i64, String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    conn.query_row(
+        "SELECT COUNT(*) FROM pages WHERE document_id = ?1 AND text_status = 'ready'",
+        rusqlite::params![document_id],
+        |row| row.get(0),
+    )
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn search_pages_text(
+    db: State<DbState>,
+    document_id: String,
+    query: String,
+    limit: Option<i64>,
+) -> Result<Vec<PageSearchResult>, String> {
+    let q = query.trim();
+    if q.is_empty() {
+        return Ok(Vec::new());
+    }
+    let max_results = limit.unwrap_or(200).clamp(1, 1000);
+    let like = format!("%{}%", escape_like(q.to_ascii_lowercase()));
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT page_number, text
+             FROM pages
+             WHERE document_id = ?1
+               AND text_status = 'ready'
+               AND LOWER(COALESCE(text, '')) LIKE ?2 ESCAPE '\\'
+             ORDER BY page_number
+             LIMIT ?3",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let rows = stmt
+        .query_map(rusqlite::params![document_id, like, max_results], |row| {
+            let page_num: i64 = row.get(0)?;
+            let text: String = row.get(1)?;
+            Ok(PageSearchResult {
+                page_num,
+                context: snippet(&text, q, 40),
+            })
+        })
+        .map_err(|e| e.to_string())?;
+
+    Ok(rows.filter_map(|r| r.ok()).collect())
+}
+
+fn escape_like(input: String) -> String {
+    input
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
+}
+
+fn snippet(text: &str, query: &str, radius: usize) -> String {
+    let haystack = text.to_ascii_lowercase();
+    let needle = query.to_ascii_lowercase();
+    let Some(pos) = haystack.find(&needle) else {
+        return text.chars().take(radius * 2).collect();
+    };
+    let start = text[..pos].char_indices().rev().nth(radius).map(|(i, _)| i).unwrap_or(0);
+    let end = text[pos..]
+        .char_indices()
+        .nth(query.chars().count() + radius)
+        .map(|(i, _)| pos + i)
+        .unwrap_or(text.len());
+    format!(
+        "{}{}{}",
+        if start > 0 { "..." } else { "" },
+        text[start..end].trim(),
+        if end < text.len() { "..." } else { "" },
+    )
 }
 
 #[derive(Debug, serde::Deserialize)]
