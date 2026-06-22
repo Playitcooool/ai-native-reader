@@ -136,7 +136,7 @@ function App() {
           style={{ width: leftCollapsed ? 36 : leftWidth, flex: "none" }}
         >
           <button aria-label={leftCollapsed ? "Expand left sidebar" : "Collapse left sidebar"} className="collapse-btn collapse-left" onClick={() => setLeftCollapsed(!leftCollapsed)}>
-            {leftCollapsed ? "▶" : "◀"}
+            {leftCollapsed ? "›" : "‹"}
           </button>
           {!leftCollapsed && <LeftSidebar />}
         </div>
@@ -155,7 +155,7 @@ function App() {
           style={{ width: rightCollapsed ? 36 : rightWidth, flex: "none" }}
         >
           <button aria-label={rightCollapsed ? "Expand right sidebar" : "Collapse right sidebar"} className="collapse-btn collapse-right" onClick={() => setRightCollapsed(!rightCollapsed)}>
-            {rightCollapsed ? "◀" : "▶"}
+            {rightCollapsed ? "‹" : "›"}
           </button>
           {!rightCollapsed && (
             <Suspense fallback={<div style={{ padding: 24, textAlign: "center", color: "var(--text-muted)", fontSize: 13 }}>Loading…</div>}>
