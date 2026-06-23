@@ -47,7 +47,11 @@ let ocrPdfRef: any = null;
 let ocrWorker: any = null;
 
 /** Set the pdfjs document for on-demand OCR (called from PdfViewer). */
-export function setOcrPdfRef(pdf: any) { ocrPdfRef = pdf; }
+export function setOcrPdfRef(pdf: any) {
+  ocrPdfRef = pdf;
+  // Pre-warm Tesseract worker while user reads the PDF (local traineddata, no CDN)
+  ocrWorker ??= createWorker("eng", undefined, { langPath: "/tessdata", gzip: false });
+}
 
 type TextWaitStatus = "ready" | "empty" | "unavailable";
 
@@ -55,7 +59,7 @@ type TextWaitStatus = "ready" | "empty" | "unavailable";
 async function ocrPage(documentId: string, pageNumber: number): Promise<TextWaitStatus> {
   if (!ocrPdfRef) return "unavailable";
   try {
-    const worker = ocrWorker ?? (ocrWorker = await createWorker("eng"));
+    const worker = ocrWorker ?? (ocrWorker = await createWorker("eng", undefined, { langPath: "/tessdata", gzip: false }));
     const page = await ocrPdfRef.getPage(pageNumber);
     const viewport = page.getViewport({ scale: 2 }); // 2x for better OCR accuracy
     const canvas = document.createElement("canvas");
@@ -98,7 +102,7 @@ async function waitForPageText(
 ): Promise<TextWaitStatus> {
   const deadline = Date.now() + timeoutMs;
   let ocrPromise: Promise<TextWaitStatus> | null = null;
-  while (Date.now() < deadline) {
+  while (true) {
     if (cancelFlag) return "unavailable";
     const result = await invoke<{ text: string | null } | null>("get_page_text", {
       documentId,
@@ -119,11 +123,14 @@ async function waitForPageText(
       ]);
       if (status !== "pending") return status;
     } else {
+      // Enforce timeout only before OCR starts (text layer may never appear)
+      if (Date.now() >= deadline) {
+        console.warn(`waitForPageText: page ${pageNumber} not available after ${timeoutMs}ms`);
+        return "unavailable";
+      }
       await new Promise((r) => setTimeout(r, 200));
     }
   }
-  console.warn(`waitForPageText: page ${pageNumber} not available after ${timeoutMs}ms`);
-  return "unavailable";
 }
 
 function flushStreamBuffer(set: any) {
