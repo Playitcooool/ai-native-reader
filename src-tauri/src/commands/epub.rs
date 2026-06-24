@@ -18,7 +18,7 @@ pub fn extract_epub_content(
     document_id: String,
     file_path: String,
 ) -> Result<i32, String> {
-    let (chapters, total, toc) = epub::extractor::extract_chapters(&file_path)?;
+    let (chapters, total, toc, meta_title, meta_author) = epub::extractor::extract_chapters(&file_path)?;
 
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     let now = Utc::now().to_rfc3339();
@@ -54,10 +54,9 @@ pub fn extract_epub_content(
     }
 
     // Update document metadata (title, author) from EPUB
-    let (meta_title, meta_author) = crate::epub::extractor::extract_metadata(&file_path);
     if meta_title.is_some() || meta_author.is_some() {
         conn.execute(
-            "UPDATE documents SET title = COALESCE(?1, title), author = ?2 WHERE id = ?3",
+            "UPDATE documents SET title = COALESCE(NULLIF(?1, ''), title), author = COALESCE(NULLIF(?2, ''), author) WHERE id = ?3",
             rusqlite::params![meta_title, meta_author, document_id],
         )
         .map_err(|e| e.to_string())?;

@@ -251,20 +251,30 @@ export default function LeftSidebar() {
       if (e instanceof MouseEvent && ctxRef.current?.contains(e.target as Node)) return;
       setCtxMenu(null);
     };
+    const onScroll = () => setCtxMenu(null);
     // Delay listener so the current click doesn't close immediately
     const id = setTimeout(() => document.addEventListener("click", close), 0);
     document.addEventListener("keydown", close);
-    return () => { clearTimeout(id); document.removeEventListener("click", close); document.removeEventListener("keydown", close); };
+    document.addEventListener("scroll", onScroll, true);
+    return () => {
+      clearTimeout(id);
+      document.removeEventListener("click", close);
+      document.removeEventListener("keydown", close);
+      document.removeEventListener("scroll", onScroll, true);
+    };
   }, [ctxMenu]);
 
   const handleContextMenu = (e: React.MouseEvent, doc: Document) => {
     e.preventDefault();
-    setCtxMenu({ x: e.clientX, y: e.clientY, doc });
+    const menuW = 150, menuH = 36;
+    const x = Math.min(e.clientX, window.innerWidth - menuW);
+    const y = Math.min(e.clientY, window.innerHeight - menuH);
+    setCtxMenu({ x, y: Math.max(10, y), doc });
   };
 
   const handleDelete = async (doc: Document) => {
+    if (!window.confirm(`Delete "${documentDisplayTitle(doc)}"? This cannot be undone.`)) { setCtxMenu(null); return; }
     setCtxMenu(null);
-    if (!window.confirm(`Delete "${documentDisplayTitle(doc)}"? This cannot be undone.`)) return;
     try {
       await useDocumentStore.getState().deleteDocument(doc.id);
       addToast({ type: "info", message: `Deleted "${documentDisplayTitle(doc)}".` });

@@ -140,10 +140,17 @@ fn scan_folder_into_db(
     let now = Utc::now().to_rfc3339();
     for (path_str, filename, sha256, doc_type) in &pending {
         let id = Uuid::new_v4().to_string();
+        // Extract metadata from PDFs (EPUB metadata extracted on first open)
+        let (meta_title, meta_author) = if doc_type == "pdf" {
+            crate::pdf::extract_metadata(path_str)
+        } else {
+            (None, None)
+        };
+        let title = meta_title.clone().unwrap_or_else(|| filename.clone());
         conn.execute(
-            "INSERT INTO documents (id, title, original_filename, file_path, file_sha256, page_count, created_at, updated_at, last_opened_at, parse_status, has_native_toc, document_type)
-             VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?6, ?7, ?8, 'pending', 0, ?9)",
-            rusqlite::params![id, filename, filename, path_str, sha256, now, now, now, doc_type],
+            "INSERT INTO documents (id, title, original_filename, file_path, file_sha256, page_count, created_at, updated_at, last_opened_at, parse_status, has_native_toc, document_type, author)
+             VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?6, ?7, ?8, 'pending', 0, ?9, ?10)",
+            rusqlite::params![id, title, filename, path_str, sha256, now, now, now, doc_type, meta_author],
         )
         .map_err(|e| e.to_string())?;
     }
@@ -208,15 +215,21 @@ fn start_watcher(
                             let sha256 =
                                 documents::compute_sha256(&path_str).unwrap_or_default();
                             let doc_type = if ext == "epub" { "epub" } else { "pdf" };
+                            let (meta_title, meta_author) = if doc_type == "pdf" {
+                                crate::pdf::extract_metadata(&path_str)
+                            } else {
+                                (None, None)
+                            };
+                            let title = meta_title.clone().unwrap_or_else(|| filename.clone());
                             let id = Uuid::new_v4().to_string();
                             let now = Utc::now().to_rfc3339();
                             let _ = c.execute(
                                 "INSERT INTO documents (id,title,original_filename,file_path,\
                                  file_sha256,page_count,created_at,updated_at,last_opened_at,\
-                                 parse_status,has_native_toc,document_type)
-                                 VALUES (?1,?2,?3,?4,?5,NULL,?6,?7,?8,'pending',0,?9)",
+                                 parse_status,has_native_toc,document_type,author)
+                                 VALUES (?1,?2,?3,?4,?5,NULL,?6,?7,?8,'pending',0,?9,?10)",
                                 rusqlite::params![
-                                    id, filename, filename, path_str, sha256, now, now, now, doc_type
+                                    id, title, filename, path_str, sha256, now, now, now, doc_type, meta_author
                                 ],
                             );
                             imported = true;

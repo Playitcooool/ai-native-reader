@@ -75,6 +75,13 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
   setCurrentDocument: (doc) => {
     if (doc) {
       get().startHeartbeat();
+      // EPUBs from bulk import may not have content extracted yet
+      if (doc.document_type === 'epub' && doc.parse_status !== 'ready') {
+        invoke("extract_epub_content", { documentId: doc.id, filePath: doc.file_path })
+          .then(() => invoke<Document | null>("get_document", { documentId: doc.id }))
+          .then((updated) => { if (updated) set({ currentDocument: updated }); })
+          .catch(() => {});
+      }
     } else {
       get().stopHeartbeat();
     }
@@ -127,6 +134,10 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
   },
   deleteDocument: async (id) => {
     await invoke("delete_document", { documentId: id });
+    const state = get();
+    if (state.currentDocument?.id === id) {
+      state.stopHeartbeat();
+    }
     set((s) => ({
       documents: s.documents.filter((d) => d.id !== id),
       currentDocument: s.currentDocument?.id === id ? null : s.currentDocument,
@@ -164,7 +175,10 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
     const doc = await invoke<Document>("import_document", { filePath: selected });
     get().setCurrentDocument(doc);
     if (doc.document_type === 'epub') {
-      invoke("extract_epub_content", { documentId: doc.id, filePath: doc.file_path }).catch(() => {});
+      await invoke("extract_epub_content", { documentId: doc.id, filePath: doc.file_path }).catch(() => {});
+      // Refresh currentDocument with updated EPUB metadata (title, author)
+      const updated = await invoke<Document | null>("get_document", { documentId: doc.id }).catch(() => null);
+      if (updated) get().setCurrentDocument(updated);
     }
     const docs = await invoke<Document[]>("get_documents");
     get().setDocuments(docs);

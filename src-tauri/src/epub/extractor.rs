@@ -8,10 +8,15 @@ pub struct ChapterContent {
     pub text: String,
 }
 
-/// Extract all chapter text and TOC from an EPUB file (single open).
-pub fn extract_chapters(path: &str) -> Result<(Vec<ChapterContent>, usize, Vec<(String, u32)>), String> {
+/// Extract all chapter text, TOC, and Dublin Core metadata from an EPUB file (single open).
+pub fn extract_chapters(path: &str) -> Result<(Vec<ChapterContent>, usize, Vec<(String, u32)>, Option<String>, Option<String>), String> {
     let mut doc = EpubDoc::new(Path::new(path))
         .map_err(|e| format!("Failed to open EPUB: {}", e))?;
+
+    // Extract metadata from the opened doc before consuming it for chapters
+    let get_val = |key: &str| doc.metadata.iter().find(|m| m.property == key).map(|m| m.value.clone()).filter(|s| !s.is_empty());
+    let meta_title = get_val("title");
+    let meta_author = get_val("creator");
 
     let total = doc.spine.len();
 
@@ -46,7 +51,7 @@ pub fn extract_chapters(path: &str) -> Result<(Vec<ChapterContent>, usize, Vec<(
         chapters.push(ChapterContent { index: i, title, text });
     }
 
-    Ok((chapters, total, toc))
+    Ok((chapters, total, toc, meta_title, meta_author))
 }
 
 /// Recursively collect all TOC labels in depth-first order.
@@ -72,18 +77,6 @@ fn flatten_nav(nav: &[epub::doc::NavPoint], level: u32, result: &mut Vec<(String
         result.push((point.label.clone(), level));
         flatten_nav(&point.children, level + 1, result);
     }
-}
-
-/// Extract metadata (title, author) from an EPUB file.
-pub fn extract_metadata(path: &str) -> (Option<String>, Option<String>) {
-    let doc = match EpubDoc::new(Path::new(path)) {
-        Ok(d) => d,
-        Err(_) => return (None, None),
-    };
-    let get_val = |key: &str| doc.metadata.iter().find(|m| m.property == key).map(|m| m.value.clone()).filter(|s| !s.is_empty());
-    let title = get_val("title");
-    let author = get_val("creator");
-    (title, author)
 }
 
 fn strip_html(html: &str) -> String {

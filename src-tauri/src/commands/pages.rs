@@ -245,12 +245,7 @@ pub fn mark_page_text_failed(
     page_number: i64,
 ) -> Result<(), String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
-    conn.execute(
-        "UPDATE pages SET text_status = 'failed' WHERE document_id = ?1 AND page_number = ?2",
-        rusqlite::params![document_id, page_number],
-    )
-    .map_err(|e| e.to_string())?;
-    Ok(())
+    insert_page_text(&conn, &document_id, page_number, "", "failed")
 }
 
 // ---------------------------------------------------------------------------
