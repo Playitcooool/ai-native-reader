@@ -15,12 +15,22 @@ pub(crate) fn compute_sha256(path: &str) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub fn import_pdf(db: State<DbState>, file_path: String) -> Result<Document, String> {
+pub fn import_document(db: State<DbState>, file_path: String) -> Result<Document, String> {
     let path = PathBuf::from(&file_path);
     let filename = path
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .ok_or_else(|| "Invalid file path".to_string())?;
+
+    let doc_type = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| match e.to_lowercase().as_str() {
+            "epub" => "epub".to_string(),
+            _ => "pdf".to_string(),
+        })
+        .unwrap_or_else(|| "pdf".to_string());
+
     let sha256 = compute_sha256(&file_path)?;
 
     let conn = db.0.lock().map_err(|e| e.to_string())?;
@@ -28,9 +38,9 @@ pub fn import_pdf(db: State<DbState>, file_path: String) -> Result<Document, Str
     let now = Utc::now().to_rfc3339();
 
     conn.execute(
-        "INSERT INTO documents (id, title, original_filename, file_path, file_sha256, page_count, created_at, updated_at, last_opened_at, parse_status, has_native_toc)
-         VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?6, ?7, ?8, 'pending', 0)",
-        rusqlite::params![id, filename, filename, file_path, sha256, now, now, now],
+        "INSERT INTO documents (id, title, original_filename, file_path, file_sha256, page_count, created_at, updated_at, last_opened_at, parse_status, has_native_toc, document_type)
+         VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?6, ?7, ?8, 'pending', 0, ?9)",
+        rusqlite::params![id, filename, filename, file_path, sha256, now, now, now, doc_type],
     )
     .map_err(|e| format!("Failed to insert document: {}", e))?;
 
@@ -48,6 +58,7 @@ pub fn import_pdf(db: State<DbState>, file_path: String) -> Result<Document, Str
         last_zoom: Some(1.0),
         parse_status: Some("pending".into()),
         has_native_toc: Some(false),
+        document_type: doc_type,
     })
 }
 
@@ -58,7 +69,7 @@ pub fn get_documents(db: State<DbState>) -> Result<Vec<Document>, String> {
         .prepare(
             "SELECT id, title, original_filename, file_path, file_sha256, page_count,
                     created_at, updated_at, last_opened_at, last_page, last_zoom,
-                    parse_status, has_native_toc
+                    parse_status, has_native_toc, document_type
              FROM documents
              ORDER BY last_opened_at DESC",
         )
@@ -80,6 +91,7 @@ pub fn get_documents(db: State<DbState>) -> Result<Vec<Document>, String> {
                 last_zoom: row.get(10)?,
                 parse_status: row.get(11)?,
                 has_native_toc: row.get(12)?,
+                document_type: row.get(13)?,
             })
         })
         .map_err(|e| e.to_string())?
@@ -96,7 +108,7 @@ pub fn get_document(db: State<DbState>, document_id: String) -> Result<Option<Do
         .prepare(
             "SELECT id, title, original_filename, file_path, file_sha256, page_count,
                     created_at, updated_at, last_opened_at, last_page, last_zoom,
-                    parse_status, has_native_toc
+                    parse_status, has_native_toc, document_type
              FROM documents WHERE id = ?1",
         )
         .map_err(|e| e.to_string())?;
@@ -117,6 +129,7 @@ pub fn get_document(db: State<DbState>, document_id: String) -> Result<Option<Do
                 last_zoom: row.get(10)?,
                 parse_status: row.get(11)?,
                 has_native_toc: row.get(12)?,
+                document_type: row.get(13)?,
             })
         })
         .map_err(|e| e.to_string())?;
@@ -125,7 +138,7 @@ pub fn get_document(db: State<DbState>, document_id: String) -> Result<Option<Do
 }
 
 #[tauri::command]
-pub fn read_document_pdf(db: State<DbState>, document_id: String) -> Result<Vec<u8>, String> {
+pub fn read_document_bytes(db: State<DbState>, document_id: String) -> Result<Vec<u8>, String> {
     let file_path: String = {
         let conn = db.0.lock().map_err(|e| e.to_string())?;
         conn.query_row(

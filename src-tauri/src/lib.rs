@@ -83,10 +83,10 @@ pub fn run() {
         })
         .on_menu_event(handle_menu_event)
         .invoke_handler(tauri::generate_handler![
-            commands::documents::import_pdf,
+            commands::documents::import_document,
             commands::documents::get_documents,
             commands::documents::get_document,
-            commands::documents::read_document_pdf,
+            commands::documents::read_document_bytes,
             commands::documents::update_last_page,
             commands::documents::update_last_zoom,
             commands::documents::update_page_count,
