@@ -18,7 +18,7 @@ pub fn extract_epub_content(
     document_id: String,
     file_path: String,
 ) -> Result<i32, String> {
-    let (chapters, total) = epub::extractor::extract_chapters(&file_path)?;
+    let (chapters, total, toc) = epub::extractor::extract_chapters(&file_path)?;
 
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     let now = Utc::now().to_rfc3339();
@@ -42,7 +42,6 @@ pub fn extract_epub_content(
     }
 
     // Save TOC
-    let toc = epub::extractor::extract_toc(&file_path)?;
     for (order, (label, level)) in toc.iter().enumerate() {
         let node_id = Uuid::new_v4().to_string();
         let start_page = 1; // ponytail: naive — use 1 for all, TOC matching works by title

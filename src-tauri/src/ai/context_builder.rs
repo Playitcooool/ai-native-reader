@@ -553,7 +553,9 @@ pub fn build_context_pack_for_mode(
             build_range_context(conn, document_id, title, s, e)
         }
         "chapter_qa" => {
-            build_page_context(conn, document_id, title, page_number, session_id)
+            let s = start_page.unwrap_or(page_number);
+            let e = end_page.unwrap_or(page_number);
+            build_range_context(conn, document_id, title, s, e)
         }
         _ => {
             build_page_context(conn, document_id, title, page_number, session_id)

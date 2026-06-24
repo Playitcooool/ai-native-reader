@@ -8,8 +8,8 @@ pub struct ChapterContent {
     pub text: String,
 }
 
-/// Extract all chapter text from an EPUB file.
-pub fn extract_chapters(path: &str) -> Result<(Vec<ChapterContent>, usize), String> {
+/// Extract all chapter text and TOC from an EPUB file (single open).
+pub fn extract_chapters(path: &str) -> Result<(Vec<ChapterContent>, usize, Vec<(String, u32)>), String> {
     let mut doc = EpubDoc::new(Path::new(path))
         .map_err(|e| format!("Failed to open EPUB: {}", e))?;
 
@@ -24,6 +24,10 @@ pub fn extract_chapters(path: &str) -> Result<(Vec<ChapterContent>, usize), Stri
         collect_toc_titles(&doc.toc, &mut t);
         t
     };
+
+    // Build toc entries
+    let mut toc = Vec::new();
+    flatten_nav(&doc.toc, 0, &mut toc);
 
     let mut chapters = Vec::new();
 
@@ -42,7 +46,7 @@ pub fn extract_chapters(path: &str) -> Result<(Vec<ChapterContent>, usize), Stri
         chapters.push(ChapterContent { index: i, title, text });
     }
 
-    Ok((chapters, total))
+    Ok((chapters, total, toc))
 }
 
 /// Recursively collect all TOC labels in depth-first order.
