@@ -4,6 +4,7 @@ import * as pdfjsLib from "pdfjs-dist";
 import "../pdfjs";
 import { documentDisplayTitle, type Document, useDocumentStore } from "../stores/documentStore";
 import PdfViewer from "./PdfViewer";
+import EpubViewer from "../features/epub/EpubViewer";
 import { useToast } from "./Toast";
 
 const coverCache = new Map<string, string>();
@@ -27,13 +28,23 @@ export default function CenterViewer({
         <h1 style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0,0,0,0)" }}>
           {documentDisplayTitle(currentDocument)}
         </h1>
-        <PdfViewer
-          key={currentDocument.id}
-          documentId={currentDocument.id}
-          onBackHome={onBackHome}
-          onOpenLibrary={onOpenLibrary}
-          onOpenAi={onOpenAi}
-        />
+        {currentDocument.document_type === 'epub' ? (
+          <EpubViewer
+            key={currentDocument.id}
+            documentId={currentDocument.id}
+            onBackHome={onBackHome}
+            onOpenLibrary={onOpenLibrary}
+            onOpenAi={onOpenAi}
+          />
+        ) : (
+          <PdfViewer
+            key={currentDocument.id}
+            documentId={currentDocument.id}
+            onBackHome={onBackHome}
+            onOpenLibrary={onOpenLibrary}
+            onOpenAi={onOpenAi}
+          />
+        )}
       </>
     );
   }
@@ -68,7 +79,9 @@ export default function CenterViewer({
               <BookCover doc={doc} />
               <span className="book-title">{documentDisplayTitle(doc)}</span>
               <span className="book-meta">
-                {doc.last_page ? `Page ${doc.last_page}` : doc.page_count ? `${doc.page_count} pages` : "Ready"}
+                {doc.document_type === 'epub'
+                ? (doc.last_page ? `${doc.last_page}%` : doc.page_count ? `${doc.page_count} chapters` : "Ready")
+                : (doc.last_page ? `Page ${doc.last_page}` : doc.page_count ? `${doc.page_count} pages` : "Ready")}
               </span>
             </button>
           ))
@@ -90,7 +103,7 @@ function BookCover({ doc }: { doc: Document }) {
     }
     const timer = window.setTimeout(() => {
       coverQueue = coverQueue
-        .then(() => renderCover(doc.id))
+        .then(() => renderCover(doc.id, doc.document_type))
         .then((cover) => {
           if (!cover || cancelled) return;
           coverCache.set(doc.id, cover);
@@ -106,13 +119,27 @@ function BookCover({ doc }: { doc: Document }) {
 
   return (
     <span className="book-cover" aria-hidden="true">
-      {src ? <img src={src} alt="" /> : <span>PDF</span>}
+      {src ? <img src={src} alt="" /> : <span>{doc.document_type === 'epub' ? 'EPUB' : 'PDF'}</span>}
     </span>
   );
 }
 
-async function renderCover(documentId: string): Promise<string | null> {
-  const data = await invoke<number[] | Uint8Array>("read_document_pdf", { documentId });
+async function renderCover(documentId: string, docType: string): Promise<string | null> {
+  if (docType === 'epub') {
+    try {
+      const docs = useDocumentStore.getState().documents;
+      const doc = docs.find(d => d.id === documentId);
+      if (!doc) return null;
+      const cover = await invoke<number[] | null>("get_document_cover", {
+        documentId, filePath: doc.file_path, documentType: docType,
+      });
+      if (!cover) return null;
+      const blob = new Blob([new Uint8Array(cover)]);
+      return URL.createObjectURL(blob);
+    } catch { return null; }
+  }
+  // PDF: existing pdfjs rendering
+  const data = await invoke<number[] | Uint8Array>("read_document_bytes", { documentId });
   const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(data) }).promise;
   try {
     const page = await pdf.getPage(1);

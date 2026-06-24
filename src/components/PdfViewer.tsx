@@ -173,7 +173,7 @@ export default function PdfViewer({ documentId, onBackHome, onOpenLibrary, onOpe
     const loadPdf = async () => {
       try {
         setLoadProgress(0);
-        const data = await invoke<number[] | Uint8Array>("read_document_pdf", { documentId });
+        const data = await invoke<number[] | Uint8Array>("read_document_bytes", { documentId });
         const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(data) });
         // pdfjs supports onProgress callback via its internal event system
         loadingTask.onProgress = (loaded: number, total: number) => {
