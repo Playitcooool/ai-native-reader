@@ -5,4 +5,5 @@ pub mod library;
 pub mod notes;
 pub mod pages;
 pub mod settings;
+pub mod stats;
 pub mod toc;

@@ -35,6 +35,8 @@ interface DocumentState {
   activeTocNodeId: string | null;
   isLoading: boolean;
   libraryFolder: string | null;
+  dailyStats: { todaySeconds: number; weekSeconds: number } | null;
+  heartbeatInterval: ReturnType<typeof setInterval> | null;
   setDocuments: (docs: Document[]) => void;
   setCurrentDocument: (doc: Document | null) => void;
   setCurrentPage: (page: number) => void;
@@ -49,6 +51,9 @@ interface DocumentState {
   scrollToPage: (page: number) => void;
   setLibraryFolder: (folder: string | null) => void;
   loadLibraryFolder: () => Promise<void>;
+  startHeartbeat: () => void;
+  stopHeartbeat: () => void;
+  loadReadingStats: () => Promise<void>;
 }
 
 export const useDocumentStore = create<DocumentState>((set, get) => ({
@@ -61,13 +66,21 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
   activeTocNodeId: null,
   isLoading: false,
   libraryFolder: null,
+  dailyStats: null,
+  heartbeatInterval: null,
   setDocuments: (documents) => set({ documents }),
-  setCurrentDocument: (doc) =>
+  setCurrentDocument: (doc) => {
+    if (doc) {
+      get().startHeartbeat();
+    } else {
+      get().stopHeartbeat();
+    }
     set({
       currentDocument: doc,
       currentPage: doc?.last_page ?? 1,
       zoom: doc?.last_zoom ?? 1.0,
-    }),
+    });
+  },
   setCurrentPage: (page) => set({ currentPage: page }),
   setTotalPages: (count) => set({ totalPages: count }),
   setZoom: (zoom) => set({ zoom: Math.max(0.25, Math.min(4.0, zoom)) }),
@@ -75,6 +88,40 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
   setActiveTocNodeId: (id) => set({ activeTocNodeId: id }),
   scrollToPage: (page) => set({ currentPage: page }),
   setLibraryFolder: (folder) => set({ libraryFolder: folder }),
+
+  startHeartbeat: () => {
+    const { heartbeatInterval } = get();
+    if (heartbeatInterval) return;
+
+    const tick = () => invoke("record_reading_heartbeat", { seconds: 15 });
+    const interval = setInterval(tick, 15_000);
+
+    const onVisibility = () => {
+      if (document.hidden) {
+        clearInterval(interval);
+        set({ heartbeatInterval: null });
+      } else {
+        get().startHeartbeat();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+
+    set({ heartbeatInterval: interval });
+  },
+
+  stopHeartbeat: () => {
+    const { heartbeatInterval } = get();
+    if (heartbeatInterval) clearInterval(heartbeatInterval);
+    set({ heartbeatInterval: null });
+  },
+
+  loadReadingStats: async () => {
+    if (!isTauriRuntime()) return;
+    try {
+      const stats = await invoke<{ today_seconds: number; week_seconds: number }>("get_reading_stats");
+      set({ dailyStats: { todaySeconds: stats.today_seconds, weekSeconds: stats.week_seconds } });
+    } catch { /* ignore */ }
+  },
   loadLibraryFolder: async () => {
     if (!isTauriRuntime()) return;
     try {

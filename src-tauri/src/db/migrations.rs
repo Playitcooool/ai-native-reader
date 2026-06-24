@@ -160,6 +160,13 @@ fn run_migrations(conn: &Connection) -> Result<()> {
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS reading_sessions (
+            id TEXT PRIMARY KEY,
+            duration_seconds INTEGER NOT NULL,
+            session_date TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_reading_sessions_date ON reading_sessions(session_date);
         ",
     )?;
 

@@ -7,6 +7,18 @@ import PdfViewer from "./PdfViewer";
 import EpubViewer from "../features/epub/EpubViewer";
 import { useToast } from "./Toast";
 
+function formatTime(totalSeconds: number): string {
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+  const minutes = Math.floor(totalSeconds / 60);
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const remMin = minutes % 60;
+  if (hours < 24) return remMin ? `${hours}h ${remMin}m` : `${hours}h`;
+  const days = Math.floor(hours / 24);
+  const remHours = hours % 24;
+  return remHours ? `${days}d ${remHours}h` : `${days}d`;
+}
+
 const coverCache = new Map<string, string>();
 let coverQueue = Promise.resolve();
 
@@ -19,8 +31,12 @@ export default function CenterViewer({
   onOpenLibrary?: () => void;
   onOpenAi?: (draft?: string) => void;
 }) {
-  const { documents, currentDocument, handleOpenDocument, handleOpenFolder, setCurrentDocument } = useDocumentStore();
+  const { documents, currentDocument, handleOpenDocument, handleOpenFolder, setCurrentDocument, dailyStats, loadReadingStats } = useDocumentStore();
   const { addToast } = useToast();
+
+  useEffect(() => {
+    loadReadingStats();
+  }, [loadReadingStats]);
 
   if (currentDocument) {
     return (
@@ -66,6 +82,14 @@ export default function CenterViewer({
           </button>
         </div>
       </div>
+
+      {dailyStats && (dailyStats.todaySeconds > 0 || dailyStats.weekSeconds > 0) && (
+        <div className="reading-stats">
+          <span>📖 Today: {formatTime(dailyStats.todaySeconds)}</span>
+          <span className="reading-stats-sep">•</span>
+          <span>Week: {formatTime(dailyStats.weekSeconds)}</span>
+        </div>
+      )}
 
       <div className="book-grid">
         {documents.length === 0 ? (
