@@ -29,6 +29,7 @@ tokio = { version = "1", features = ["full"] }
 tokio-stream = "0.1"
 epub = "2.1"
 scraper = "0.18"
+leptess = "0.14"
 
 [profile.release]
 lto = true

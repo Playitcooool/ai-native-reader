@@ -1,7 +1,6 @@
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { createWorker } from "tesseract.js";
 import { pagesNeededForWorkflow } from "../features/ai/workflowPages";
 
 export interface AiMessage {
@@ -42,54 +41,49 @@ interface AiState {
   loadSessionMessages: (sessionId: string) => Promise<void>;
 }
 
-/** Pdfjs document proxy — set by PdfViewer on load, used by OCR fallback. */
+/** Pdfjs document proxy — set by PdfViewer on load, used for page rendering before OCR. */
 let ocrPdfRef: any = null;
-let ocrWorker: any = null;
 
-/** Set the pdfjs document for on-demand OCR (called from PdfViewer). */
+/** Set the pdfjs document for on-demand page rendering (called from PdfViewer). */
 export function setOcrPdfRef(pdf: any) {
   ocrPdfRef = pdf;
-  // Pre-warm Tesseract worker while user reads the PDF (local traineddata, no CDN)
-  ocrWorker ??= createWorker("eng", undefined, { langPath: "/tessdata", gzip: false });
 }
 
 type TextWaitStatus = "ready" | "empty" | "unavailable";
 
-/** Run OCR on a single page using Tesseract.js. Saves text via IPC on success. */
+/** Run OCR on a single page via Rust backend leptess. Sends PNG bytes, saves to DB. */
 async function ocrPage(documentId: string, pageNumber: number): Promise<TextWaitStatus> {
   if (!ocrPdfRef) return "unavailable";
+  const page = await ocrPdfRef.getPage(pageNumber);
+  const viewport = page.getViewport({ scale: 2 }); // 2x for better OCR accuracy
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.ceil(viewport.width);
+  canvas.height = Math.ceil(viewport.height);
+  const ctx = canvas.getContext("2d");
+  if (!ctx) { page.cleanup(); return "unavailable"; }
   try {
-    const worker = ocrWorker ?? (ocrWorker = await createWorker("eng", undefined, { langPath: "/tessdata", gzip: false }));
-    const page = await ocrPdfRef.getPage(pageNumber);
-    const viewport = page.getViewport({ scale: 2 }); // 2x for better OCR accuracy
-    const canvas = document.createElement("canvas");
-    canvas.width = Math.ceil(viewport.width);
-    canvas.height = Math.ceil(viewport.height);
-    const ctx = canvas.getContext("2d");
-    if (!ctx) {
-      page.cleanup();
-      return "unavailable";
-    }
-    try {
-      await page.render({ canvasContext: ctx, viewport }).promise;
-    } finally {
-      page.cleanup();
-    }
-
-    const { data } = await worker.recognize(canvas);
-    const text = data.text.trim();
-    if (text) {
-      await invoke("save_page_text", { documentId, pageNumber, text });
-      return "ready";
-    }
-    return "empty";
-  } catch (err) {
-    console.warn(`OCR failed for page ${pageNumber}:`, err);
-    return "unavailable";
+    await page.render({ canvasContext: ctx, viewport }).promise;
+  } finally {
+    page.cleanup();
   }
+
+  // Canvas → PNG blob → Uint8Array (binary IPC)
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
+  if (!blob) return "unavailable";
+  const pngBytes = new Uint8Array(await blob.arrayBuffer());
+
+  // Rust handles OCR + DB save in one call; throws on failure with backend error message
+  const status = await invoke<string>("ocr_page", {
+    documentId,
+    pageNumber,
+    imagePng: pngBytes,
+  });
+
+  return status === "ok" || status === "skipped" ? "ready" : "empty";
 }
 
 let cancelFlag = false;
+let isWorkflowRunning = false;
 let streamBuffer = "";
 let streamTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -117,13 +111,13 @@ async function waitForPageText(
     }
 
     if (ocrPromise) {
+      if (Date.now() >= deadline) return "unavailable";
       const status = await Promise.race([
         ocrPromise,
         new Promise<"pending">((r) => setTimeout(() => r("pending"), 200)),
       ]);
       if (status !== "pending") return status;
     } else {
-      // Enforce timeout only before OCR starts (text layer may never appear)
       if (Date.now() >= deadline) {
         console.warn(`waitForPageText: page ${pageNumber} not available after ${timeoutMs}ms`);
         return "unavailable";
@@ -155,6 +149,8 @@ export const useAiStore = create<AiState>((set, get) => ({
   setStreamingContent: (content) => set({ streamingContent: content }),
 
   runWorkflow: async (input) => {
+    if (isWorkflowRunning) throw new Error("An AI workflow is already running.");
+    isWorkflowRunning = true;
     set({ isGenerating: true, aiPhase: "building_context", streamingContent: "", lastWorkflowInput: input as Record<string, any> });
 
     let unlisten: UnlistenFn[] = [];
@@ -263,6 +259,7 @@ export const useAiStore = create<AiState>((set, get) => ({
       if (streamTimer) { clearTimeout(streamTimer); streamTimer = null; }
       streamBuffer = "";
       cancelFlag = false;
+      isWorkflowRunning = false;
       set({ isGenerating: false, aiPhase: "", streamingContent: "" });
     }
   },

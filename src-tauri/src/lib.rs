@@ -2,6 +2,7 @@ pub mod ai;
 pub mod commands;
 pub mod db;
 pub mod epub;
+pub mod ocr;
 
 use commands::library::LibraryState;
 use commands::settings::DbState;
@@ -99,6 +100,7 @@ pub fn run() {
             commands::pages::count_indexed_pages,
             commands::pages::search_pages_text,
             commands::pages::mark_page_text_failed,
+            commands::pages::ocr_page,
             commands::toc::save_toc_nodes,
             commands::toc::get_toc_tree,
             commands::toc::get_toc_node_for_page,

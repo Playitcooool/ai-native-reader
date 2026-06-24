@@ -1,9 +1,40 @@
 use serde::Serialize;
+use tauri::Manager;
 use tauri::State;
 use chrono::Utc;
+use std::env;
+use std::path::Path;
 
 use super::settings::DbState;
 use crate::ai::context_builder::cache_page_text;
+
+/// OCR command result status — serialized as plain string via serde.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OcrStatus {
+    Ok,
+    Empty,
+    Skipped,
+}
+
+fn insert_page_text(
+    conn: &rusqlite::Connection,
+    document_id: &str,
+    page_number: i64,
+    text: &str,
+    text_status: &str,
+) -> Result<(), String> {
+    let id = page_row_id(document_id, page_number);
+    let now = Utc::now().to_rfc3339();
+    let char_count = text.chars().count() as i64;
+    conn.execute(
+        "INSERT OR REPLACE INTO pages (id, document_id, page_number, text, text_status, char_count, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        rusqlite::params![id, document_id, page_number, text, text_status, char_count, now, now],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
 
 #[derive(Debug, Serialize)]
 pub struct PageText {
@@ -22,7 +53,7 @@ pub struct PageSearchResult {
     pub context: String,
 }
 
-fn page_row_id(document_id: &str, page_number: i64) -> String {
+pub(crate) fn page_row_id(document_id: &str, page_number: i64) -> String {
     // Deterministic ID from document_id + page_number so upserts don't orphan FKs
     format!("p_{}_{}", document_id, page_number)
 }
@@ -35,16 +66,8 @@ pub fn save_page_text(
     text: String,
 ) -> Result<(), String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
-    let id = page_row_id(&document_id, page_number);
-    let now = Utc::now().to_rfc3339();
-    let char_count = text.chars().count() as i64;
-
-    conn.execute(
-        "INSERT OR REPLACE INTO pages (id, document_id, page_number, text, text_status, char_count, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, 'ready', ?5, ?6, ?7)",
-        rusqlite::params![id, document_id, page_number, text, char_count, now, now],
-    )
-    .map_err(|e| e.to_string())?;
+    insert_page_text(&conn, &document_id, page_number, &text, "ready")
+        .map_err(|e| e.to_string())?;
     cache_page_text(&document_id, page_number, &text);
     Ok(())
 }
@@ -204,16 +227,9 @@ pub fn save_pages_text(
     pages: Vec<PageTextInput>,
 ) -> Result<(), String> {
     let mut conn = db.0.lock().map_err(|e| e.to_string())?;
-    let now = Utc::now().to_rfc3339();
     let tx = conn.transaction().map_err(|e| e.to_string())?;
     for p in &pages {
-        let id = page_row_id(&document_id, p.page_number);
-        let char_count = p.text.chars().count() as i64;
-        tx.execute(
-            "INSERT OR REPLACE INTO pages (id, document_id, page_number, text, text_status, char_count, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, 'ready', ?5, ?6, ?7)",
-            rusqlite::params![id, document_id, p.page_number, p.text, char_count, now, now],
-        ).map_err(|e| e.to_string())?;
+        insert_page_text(&tx, &document_id, p.page_number, &p.text, "ready")?;
     }
     tx.commit().map_err(|e| e.to_string())?;
     for p in &pages {
@@ -235,4 +251,104 @@ pub fn mark_page_text_failed(
     )
     .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// OCR
+// ---------------------------------------------------------------------------
+
+fn resolve_tessdata(app: &tauri::AppHandle) -> Result<String, String> {
+    if let Some(path) = crate::ocr::get_tessdata_path() {
+        return Ok(path.to_string());
+    }
+
+    // 0. TESSDATA_PREFIX — the standard Tesseract discovery mechanism.
+    if let Ok(val) = env::var("TESSDATA_PREFIX") {
+        let p = Path::new(&val);
+        if p.join("eng.traineddata").is_file() {
+            let s = p.to_string_lossy().to_string();
+            crate::ocr::init_tessdata_path(&s);
+            return Ok(s);
+        }
+    }
+
+    // 1. Homebrew (Apple Silicon) — common dev setup
+    let homebrew = Path::new("/opt/homebrew/share/tessdata");
+    if homebrew.join("eng.traineddata").is_file() {
+        let p = homebrew.to_string_lossy().to_string();
+        crate::ocr::init_tessdata_path(&p);
+        return Ok(p);
+    }
+
+    // 2. Tauri bundled resources (production build)
+    if let Ok(dir) = app.path().resource_dir() {
+        let bundled = dir.join("assets/tessdata");
+        if bundled.join("eng.traineddata").is_file() {
+            let p = bundled.to_string_lossy().to_string();
+            crate::ocr::init_tessdata_path(&p);
+            return Ok(p);
+        }
+    }
+
+    // 3. Homebrew (Intel macOS)
+    let usr_local = Path::new("/usr/local/share/tessdata");
+    if usr_local.join("eng.traineddata").is_file() {
+        let p = usr_local.to_string_lossy().to_string();
+        crate::ocr::init_tessdata_path(&p);
+        return Ok(p);
+    }
+
+    // 4. Linux standard paths
+    let linux_paths = [
+        "/usr/share/tesseract-ocr/5/tessdata",
+        "/usr/share/tesseract-ocr/4.00/tessdata",
+        "/usr/share/tessdata",
+    ];
+    for path in &linux_paths {
+        let p = Path::new(path);
+        if p.join("eng.traineddata").is_file() {
+            let s = p.to_string_lossy().to_string();
+            crate::ocr::init_tessdata_path(&s);
+            return Ok(s);
+        }
+    }
+
+    Err("Tesseract training data not found. Install Tesseract or set TESSDATA_PREFIX.".to_string())
+}
+
+#[tauri::command]
+pub fn ocr_page(
+    app: tauri::AppHandle,
+    db: State<DbState>,
+    document_id: String,
+    page_number: i64,
+    image_png: Vec<u8>,
+) -> Result<OcrStatus, String> {
+    let tessdata_path = resolve_tessdata(&app)?;
+    let text = crate::ocr::ocr_png_bytes(&image_png, &tessdata_path)?;
+
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+
+    // Don't overwrite higher-quality text-layer text if it already exists
+    let id = page_row_id(&document_id, page_number);
+    let existing: Option<String> = conn
+        .query_row(
+            "SELECT text_status FROM pages WHERE id = ?1",
+            rusqlite::params![id],
+            |row| row.get(0),
+        )
+        .ok();
+    if existing.as_deref() == Some("ready") {
+        return Ok(OcrStatus::Skipped);
+    }
+
+    if text.is_empty() {
+        // Use INSERT OR REPLACE so the failure state is persisted even if no row existed
+        insert_page_text(&conn, &document_id, page_number, "", "failed")?;
+        return Ok(OcrStatus::Empty);
+    }
+
+    insert_page_text(&conn, &document_id, page_number, &text, "ready")?;
+    cache_page_text(&document_id, page_number, &text);
+    Ok(OcrStatus::Ok)
 }
