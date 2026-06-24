@@ -177,7 +177,8 @@ export const useAiStore = create<AiState>((set, get) => ({
 
       // Wait for target page text/OCR before calling AI.
       const pages = pagesNeededForWorkflow(input);
-      for (const p of pages) {
+      if (pages.length === 1) {
+        const p = pages[0];
         if (cancelFlag) return null;
         set({ aiPhase: `waiting_for_text:${p}` });
         const status = await waitForPageText(input.documentId, p, 30000, () =>
@@ -189,8 +190,12 @@ export const useAiStore = create<AiState>((set, get) => ({
             : `Could not extract text from page ${p}.`;
           throw new Error(`${reason} Try a clearer scan or a smaller page range.`);
         }
+      } else {
+        // Multi-page range: backend handles partial text gracefully
+        set({ aiPhase: "building_context" });
+        // Give extraction queue a head start, then proceed regardless
+        await new Promise((r) => setTimeout(r, 2000));
       }
-      set({ aiPhase: "building_context" });
 
       const result = await invoke<{
         message_id: string;
