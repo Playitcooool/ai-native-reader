@@ -131,9 +131,6 @@ function DocItem({ doc, currentId, onSelect, onContextMenu }: {
   onContextMenu?: (e: React.MouseEvent, doc: Document) => void;
 }) {
   const isActive = doc.id === currentId;
-  const meta = doc.document_type === 'epub'
-    ? `EPUB · ${doc.page_count ?? "?"} ch`
-    : `PDF · ${doc.page_count ?? "?"} pages`;
   return (
     <button
       onClick={() => onSelect(doc)}
@@ -142,7 +139,6 @@ function DocItem({ doc, currentId, onSelect, onContextMenu }: {
     >
       <span className="recent-item-title">{documentDisplayTitle(doc)}</span>
       {doc.author && <span className="recent-item-meta">{doc.author}</span>}
-      <span className="recent-item-meta">{meta}</span>
     </button>
   );
 }
