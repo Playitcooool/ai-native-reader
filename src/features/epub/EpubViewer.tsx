@@ -1,10 +1,13 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import ePub from "epubjs";
 import type { Book, Rendition } from "epubjs";
 import { useDocumentStore } from "../../stores/documentStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { Icon } from "../../components/Icons";
+import EpubInkOverlay from "../ink/EpubInkOverlay";
+import InkToolbarControls from "../ink/InkToolbarControls";
+import type { InkToolState } from "../ink/inkGeometry";
 
 interface EpubViewerProps {
   documentId: string;
@@ -14,14 +17,27 @@ interface EpubViewerProps {
 }
 
 export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOpenAi }: EpubViewerProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const bookRef = useRef<Book | null>(null);
   const renditionRef = useRef<Rendition | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [fontSize, setFontSize] = useState(100);
+  const [inkRefreshKey, setInkRefreshKey] = useState(0);
+  const [containerEl, setContainerEl] = useState<HTMLDivElement | null>(null);
+  const [rendition, setRendition] = useState<Rendition | null>(null);
+  const [inkToolState, setInkToolState] = useState<InkToolState>({
+    activeTool: "none",
+    color: "#111827",
+    penWidth: 4,
+    eraserWidth: 16,
+  });
   const { currentDocument, setCurrentPage, setTocNodes } = useDocumentStore();
   const theme = useSettingsStore((s) => s.theme);
   const setTheme = useSettingsStore((s) => s.setTheme);
+  const setContainerRef = useCallback((element: HTMLDivElement | null) => {
+    containerRef.current = element;
+    setContainerEl(element);
+  }, []);
 
   // Load EPUB
   useEffect(() => {
@@ -42,6 +58,7 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
           spread: "none",
         });
         renditionRef.current = rendition;
+        setRendition(rendition);
 
         // Restore position (last_page as 0-100 scroll percentage)
         const startPct = currentDocument?.last_page ?? 0;
@@ -95,6 +112,7 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
     return () => {
       destroyed = true;
       renditionRef.current?.destroy();
+      setRendition(null);
       bookRef.current?.destroy();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -105,6 +123,12 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
     if (!renditionRef.current) return;
     renditionRef.current.themes?.fontSize(`${fontSize}%`);
   }, [fontSize]);
+
+  useEffect(() => {
+    const refresh = () => setInkRefreshKey((key) => key + 1);
+    window.addEventListener("annotations-changed", refresh);
+    return () => window.removeEventListener("annotations-changed", refresh);
+  }, []);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -117,6 +141,10 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
       if (e.metaKey || e.ctrlKey) return;
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
 
+      if (e.key === "Escape") {
+        setInkToolState((state) => ({ ...state, activeTool: "none" }));
+        return;
+      }
       if (e.key === "ArrowUp" || e.key === "PageUp") {
         e.preventDefault();
         const container = containerRef.current;
@@ -161,6 +189,7 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
         <button className="icon-button" onClick={() => setTheme(theme === "light" ? "dark" : "light")} title="Switch theme (Cmd+Shift+T)" aria-label="Toggle theme">
           <Icon name={theme === "light" ? "moon" : "sun"} />
         </button>
+        <InkToolbarControls value={inkToolState} onChange={setInkToolState} />
         <span className="toolbar-center">
           <button className="toolbar-text-button" onClick={onOpenLibrary} aria-label="Open library">
             <Icon name="books" />
@@ -182,11 +211,21 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
           <p style={{ color: "var(--danger-color)" }}>{error}</p>
         </div>
       ) : (
-        <div
-          ref={containerRef}
-          className="epub-scroll"
-          style={{ height: "100%", overflow: "auto" }}
-        />
+        <div className="epub-reader-frame">
+          <div
+            ref={setContainerRef}
+            className="epub-scroll"
+            style={{ height: "100%", overflow: "auto" }}
+          />
+          <EpubInkOverlay
+            documentId={documentId}
+            container={containerEl}
+            rendition={rendition}
+            toolState={inkToolState}
+            refreshKey={inkRefreshKey}
+            onChanged={() => setInkRefreshKey((key) => key + 1)}
+          />
+        </div>
       )}
     </div>
   );

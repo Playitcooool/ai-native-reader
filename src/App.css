@@ -660,6 +660,55 @@
   color: var(--accent-color);
 }
 
+.ink-toolbar {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ink-popover {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+  padding: 3px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-primary) 92%, var(--text-primary) 8%);
+  border: 1px solid var(--border-color);
+}
+
+.ink-swatches {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ink-swatch {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.35);
+}
+
+.ink-swatch.active {
+  border-color: var(--text-primary);
+}
+
+.ink-popover select {
+  height: 24px;
+  max-width: 68px;
+  border: 0;
+  border-radius: 999px;
+  padding: 0 6px;
+  background: color-mix(in srgb, var(--text-primary) 7%, transparent);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12px;
+}
+
 .toolbar-divider {
   width: 1px;
   height: 22px;
@@ -740,6 +789,17 @@
   background: var(--reader-bg);
 }
 
+.ink-overlay.active {
+  z-index: 4;
+}
+
+.epub-reader-frame {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
 @media (max-width: 720px) {
   .library-header {
     align-items: flex-start;
@@ -758,6 +818,19 @@
 
   .search-status {
     display: none;
+  }
+
+  .toolbar-center {
+    display: none;
+  }
+
+  .ink-popover {
+    position: absolute;
+    top: calc(100% + 7px);
+    left: 0;
+    z-index: 20;
+    border-radius: 10px;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.16);
   }
 }
 

@@ -1,4 +1,4 @@
-type IconName = "home" | "books" | "ask" | "prev" | "next" | "search" | "moon" | "sun" | "minus" | "plus" | "close";
+type IconName = "home" | "books" | "ask" | "prev" | "next" | "search" | "moon" | "sun" | "minus" | "plus" | "close" | "pen" | "eraser";
 
 export function Icon({ name }: { name: IconName }) {
   const common = { width: 17, height: 17, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
@@ -14,6 +14,8 @@ export function Icon({ name }: { name: IconName }) {
     minus: <><path d="M5 12h14" /></>,
     plus: <><path d="M12 5v14" /><path d="M5 12h14" /></>,
     close: <><path d="M18 6 6 18" /><path d="m6 6 12 12" /></>,
+    pen: <><path d="m12 19 7-7 3 3-7 7-3 .5.5-3.5Z" /><path d="m18 13-7-7 2-2a2.1 2.1 0 0 1 3 0l4 4a2.1 2.1 0 0 1 0 3Z" /><path d="m2 22 5-5" /></>,
+    eraser: <><path d="m7 21-4-4a2.1 2.1 0 0 1 0-3L14 3a2.1 2.1 0 0 1 3 0l4 4a2.1 2.1 0 0 1 0 3L10 21Z" /><path d="M22 21H7" /><path d="m5 12 7 7" /></>,
   };
   return <svg aria-hidden="true" {...common}>{paths[name]}</svg>;
 }

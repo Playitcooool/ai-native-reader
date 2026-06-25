@@ -11,6 +11,7 @@ import TocSidebar from "../features/toc/TocSidebar";
 import { useToast } from "./Toast";
 
 type Tab = "toc" | "notes" | "recent" | "settings";
+const NOTE_LIKE_ANNOTATION_TYPES = new Set(["note", "ai_note"]);
 
 // ── File tree types & helpers ──────────────────────────────────
 
@@ -160,7 +161,7 @@ function DocItem({ doc, currentId, onSelect, onContextMenu }: {
 function annotationsToMarkdown(annotations: Annotation[], docTitle: string | null): string {
   let md = `# Notes${docTitle ? ` — ${docTitle}` : ""}\n\n`;
   const byPage = new Map<number, typeof annotations>();
-  for (const a of annotations.filter((ann) => ann.type !== "highlight")) {
+  for (const a of annotations.filter((ann) => NOTE_LIKE_ANNOTATION_TYPES.has(ann.type))) {
     const list = byPage.get(a.page_number) ?? [];
     list.push(a);
     byPage.set(a.page_number, list);
@@ -203,7 +204,7 @@ export default function LeftSidebar() {
   } = useDocumentStore();
   const { annotations, isLoading: notesLoading, loadAnnotations, deleteAnnotation } = useNotesStore();
   const { addToast } = useToast();
-  const notes = annotations.filter((ann) => ann.type !== "highlight");
+  const notes = annotations.filter((ann) => NOTE_LIKE_ANNOTATION_TYPES.has(ann.type));
 
   useEffect(() => {
     loadDocuments().catch(() =>

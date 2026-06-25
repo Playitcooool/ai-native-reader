@@ -11,6 +11,8 @@ import { PageExtractionQueue } from "../features/pdf/pdfTextExtraction";
 import SelectionMenu from "../features/pdf/SelectionMenu";
 import PageView from "../features/pdf/PageView";
 import { findPageIndexAtOffset, useVisibleRange } from "../features/pdf/useVisibleRange";
+import InkToolbarControls from "../features/ink/InkToolbarControls";
+import type { InkToolState } from "../features/ink/inkGeometry";
 import { useToast } from "./Toast";
 import ShortcutsModal from "./ShortcutsModal";
 import { Icon } from "./Icons";
@@ -29,6 +31,12 @@ export default function PdfViewer({ documentId, onBackHome, onOpenLibrary, onOpe
   const [selectionPos, setSelectionPos] = useState<{ x: number; y: number } | null>(null);
   const [selectionAnchor, setSelectionAnchor] = useState<any>(null);
   const [highlightRefreshKey, setHighlightRefreshKey] = useState(0);
+  const [inkToolState, setInkToolState] = useState<InkToolState>({
+    activeTool: "none",
+    color: "#111827",
+    penWidth: 4,
+    eraserWidth: 16,
+  });
   const [pageCount, setPageCount] = useState(0);
   const [basePageHeight, setBasePageHeight] = useState(0);
   const [basePageWidth, setBasePageWidth] = useState(0);
@@ -344,7 +352,11 @@ export default function PdfViewer({ documentId, onBackHome, onOpenLibrary, onOpe
         e.preventDefault();
         handleExplain();
       }
-      if (e.key === "Escape") { clearSelection(); setShowShortcuts(false); }
+      if (e.key === "Escape") {
+        clearSelection();
+        setShowShortcuts(false);
+        setInkToolState((state) => ({ ...state, activeTool: "none" }));
+      }
       if (e.key === "?") { setShowShortcuts((p) => !p); }
     };
     window.addEventListener("keydown", handleKey);
@@ -447,6 +459,7 @@ export default function PdfViewer({ documentId, onBackHome, onOpenLibrary, onOpe
         <button className="icon-button" onClick={() => setTheme(theme === "light" ? "dark" : "light")} title="Switch to light/dark mode (Cmd+Shift+T)" aria-label="Toggle theme">
           <Icon name={theme === "light" ? "moon" : "sun"} />
         </button>
+        <InkToolbarControls value={inkToolState} onChange={setInkToolState} />
         <span className="toolbar-center">
           <button className="toolbar-text-button" onClick={onOpenLibrary} aria-label="Open library">
             <Icon name="books" />
@@ -544,6 +557,7 @@ export default function PdfViewer({ documentId, onBackHome, onOpenLibrary, onOpe
                   width={pageWidthAtZoom}
                   height={pageHeightAtZoom}
                   highlightRefreshKey={highlightRefreshKey}
+                  inkToolState={inkToolState}
                   onSelection={handleTextSelection}
                 />
               );

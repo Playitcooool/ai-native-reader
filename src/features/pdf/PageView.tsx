@@ -2,6 +2,8 @@ import { memo, useCallback, useEffect, useRef, useState } from "react";
 import type { PDFDocumentProxy, PDFPageProxy } from "pdfjs-dist";
 import { invoke } from "@tauri-apps/api/core";
 import type { Annotation } from "../../stores/notesStore";
+import InkCanvasOverlay from "../ink/InkCanvasOverlay";
+import type { InkToolState } from "../ink/inkGeometry";
 import PdfTextLayer from "./PdfTextLayer";
 
 interface PageViewProps {
@@ -13,6 +15,7 @@ interface PageViewProps {
   width: number;
   height: number;
   highlightRefreshKey?: number;
+  inkToolState: InkToolState;
   onSelection: (text: string, anchor: {
     pageNumber: number;
     selectedText: string;
@@ -39,6 +42,7 @@ export default memo(function PageView({
   width,
   height,
   highlightRefreshKey = 0,
+  inkToolState,
   onSelection,
 }: PageViewProps) {
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -51,7 +55,7 @@ export default memo(function PageView({
   const prevZoomRef = useRef(zoom);
   const [phase, setPhase] = useState<Phase>("loading");
   const [errMsg, setErrMsg] = useState<string | null>(null);
-  const [highlights, setHighlights] = useState<Annotation[]>([]);
+  const [annotations, setAnnotations] = useState<Annotation[]>([]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -132,10 +136,10 @@ export default memo(function PageView({
     let dead = false;
     invoke<Annotation[]>("get_annotations_for_page", { documentId, pageNumber: pageNum })
       .then((rows) => {
-        if (!dead) setHighlights(rows.filter((a) => a.type === "highlight"));
+        if (!dead) setAnnotations(rows);
       })
       .catch(() => {
-        if (!dead) setHighlights([]);
+        if (!dead) setAnnotations([]);
       });
     return () => { dead = true; };
   }, [documentId, pageNum, highlightRefreshKey]);
@@ -312,6 +316,8 @@ export default memo(function PageView({
             height: "100%",
             opacity: 0,
             transition: "opacity 0.15s ease",
+            pointerEvents: inkToolState.activeTool === "none" ? "auto" : "none",
+            userSelect: inkToolState.activeTool === "none" ? "text" : "none",
           }}
           ref={(el) => {
             if (el) requestAnimationFrame(() => { el.style.opacity = "1"; });
@@ -323,9 +329,21 @@ export default memo(function PageView({
             onSelection={handleSelection}
             containerWidth={width}
             containerHeight={height}
-            highlights={highlights}
+            highlights={annotations.filter((a) => a.type === "highlight")}
           />
         </div>
+      )}
+      {phase === "ready" && (
+        <InkCanvasOverlay
+          documentId={documentId}
+          pageNumber={pageNum}
+          width={width}
+          height={height}
+          annotations={annotations.filter((a) => a.type === "ink")}
+          toolState={inkToolState}
+          space="pdf-page"
+          renderScale={zoom}
+        />
       )}
     </div>
   );
