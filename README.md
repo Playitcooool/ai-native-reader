@@ -1,28 +1,26 @@
 # RustyBooks
 
-**An AI-native PDF reader for people who read deeply.**
+**AI-native reader that lives in your documents — not in the cloud.**
 
-RustyBooks is a local-first desktop reader built with Tauri, React, and PDF.js. It keeps track of the page, section, selected text, nearby context, notes, and citations so AI answers are grounded in the document you are actually reading.
+A local-first desktop reader for PDFs and EPUBs. Works offline, keeps everything on your machine, and brings AI to your reading without uploading a single page.
 
 <p>
-  <img alt="RustyBooks library with imported PDF covers" src="docs/screenshots/rustybooks-library.png" width="100%">
+  <img alt="RustyBooks library" src="docs/screenshots/rustybooks-library.png" width="100%">
 </p>
 
 <p>
-  <img alt="RustyBooks PDF reader with toolbar" src="docs/screenshots/rustybooks-reader.png" width="100%">
+  <img alt="RustyBooks reader" src="docs/screenshots/rustybooks-reader.png" width="100%">
 </p>
 
-## Why RustyBooks
+## What makes it different
 
-- **Reading-state aware AI**: Explain a selection, summarize a page or range, and ask about the current section.
-- **Grounded citations**: AI answers can reference pages like `[p.12]`, and citations jump back into the PDF.
-- **Local-first library**: Recent documents, last page, zoom, notes, TOC, and provider settings are stored locally.
-- **Bring your own model**: Works with OpenAI-compatible endpoints such as OpenAI, LM Studio, and Ollama.
-- **Built for long PDFs**: Native TOC extraction, virtualized pages, background text extraction, and keyboard-first navigation.
+**AI that reads the room.** Select a paragraph and press `E` — the AI sees the selected text, the page, the section heading, and nearby pages before answering. No copy-paste, no context window guessing.
 
-## Current Status
+**Citations that work.** Answers reference pages (`[p.12]`), and every citation is a clickable link back into the PDF.
 
-RustyBooks is an MVP. The core reader, library, TOC, notes, citation parsing, provider settings, and AI workflows are implemented. Planned work includes continuous scroll polish, PDF text search, streaming responses, figure/region selection, and Markdown export improvements.
+**Tiny footprint.** SQLite backend, bundled AI calls, no hidden uploads. Everything runs on your hardware, against the model you choose.
+
+**Bring your own model.** OpenAI, LM Studio, Ollama — any OpenAI-compatible endpoint. No vendor lock-in, no per-seat fees.
 
 ## Quick Start
 
@@ -31,52 +29,43 @@ npm install
 npm run tauri dev
 ```
 
-Build a release bundle:
+Build for distribution:
 
 ```bash
 npm run tauri build
 ```
 
-Run checks:
-
-```bash
-npm test
-npm run build
-```
-
 ## Configure AI
 
-Open **Settings** in the app and add any OpenAI-compatible provider:
+Open **Settings** in the app and point it at any OpenAI-compatible API:
 
 | Field | Example |
-| --- | --- |
-| Base URL | `https://api.openai.com/v1` |
-| API key | Your provider key |
-| Model | `gpt-4o-mini` |
+|---|---|
+| Base URL | `http://localhost:1234/v1` |
+| API key | (your key, or leave blank for local models) |
+| Model | `gpt-4o-mini` / `llama-3.2` / any |
 
-Local providers such as LM Studio and Ollama work when they expose an OpenAI-compatible API.
+Local models (LM Studio, Ollama) work with zero configuration beyond the URL.
 
-## Keyboard Shortcuts
+## Keyboard
 
 | Key | Action |
-| --- | --- |
-| `Left` / `PageUp` | Previous page |
-| `Right` / `PageDown` | Next page |
-| `+` / `=` | Zoom in |
-| `-` | Zoom out |
+|---|---|
+| `E` | Explain selected text |
+| `←` / `→` | Previous / next page |
+| `+` / `-` | Zoom in / out |
 | `0` | Reset zoom |
-| `E` | Explain selection |
 | `Esc` | Clear selection |
 
-## Tech Stack
+## Stack
 
-| Layer | Technology |
-| --- | --- |
-| Desktop shell | Tauri v2 |
+| Layer | What |
+|---|---|
+| Shell | Tauri v2 |
 | Frontend | React 18, TypeScript, Vite |
-| PDF rendering | PDF.js v4 |
+| PDF | PDF.js v4 |
 | State | Zustand |
-| Database | SQLite via Rust backend |
-| AI API | OpenAI-compatible HTTP |
+| Storage | SQLite (local, never leaves your machine) |
+| AI | OpenAI-compatible HTTP |
 
-See [ai_native_pdf_reader_design_v0.5_agent_ready.md](ai_native_pdf_reader_design_v0.5_agent_ready.md) for the full design notes.
+See [design notes](docs/superpowers/ai_native_pdf_reader_design_v0.5_agent_ready.md) for the full background.
