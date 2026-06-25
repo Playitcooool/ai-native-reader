@@ -110,7 +110,7 @@ export function splitStrokeByEraser(
   const keep: boolean[] = local.map((point) => pointDistanceToPolyline(point, eraserPoints) > radius);
 
   const fragments: InkAnchor[] = [];
-  let current: InkPoint[] = [];
+  let current: InkPoint[] = keep[0] ? [stroke.points[0]] : [];
   const flush = () => {
     if (current.length >= 2) {
       fragments.push({ ...stroke, points: current });
@@ -118,10 +118,20 @@ export function splitStrokeByEraser(
     current = [];
   };
 
-  stroke.points.forEach((point, index) => {
-    if (keep[index]) current.push(point);
-    else flush();
-  });
+  for (let i = 1; i < stroke.points.length; i++) {
+    const segmentErased = segmentDistanceToPolyline(local[i - 1], local[i], eraserPoints) <= radius;
+    if (segmentErased) {
+      flush();
+      if (keep[i]) current = [stroke.points[i]];
+      continue;
+    }
+    if (!keep[i]) {
+      flush();
+      continue;
+    }
+    if (current.length === 0 && keep[i - 1]) current.push(stroke.points[i - 1]);
+    current.push(stroke.points[i]);
+  }
   flush();
   return fragments;
 }

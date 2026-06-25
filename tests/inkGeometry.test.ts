@@ -52,4 +52,22 @@ describe("inkGeometry", () => {
     expect(fragments[0].points).toEqual([{ x: 0.1, y: 0.5 }, { x: 0.3, y: 0.5 }]);
     expect(fragments[1].points).toEqual([{ x: 0.7, y: 0.5 }, { x: 0.9, y: 0.5 }]);
   });
+
+  it("drops a sparse segment crossed by the eraser between sampled points", () => {
+    const stroke: InkAnchor = {
+      version: 1,
+      space: "pdf-page",
+      width: 2,
+      points: [{ x: 0.1, y: 0.5 }, { x: 0.9, y: 0.5 }],
+    };
+
+    const fragments = splitStrokeByEraser(
+      stroke,
+      [{ x: 95, y: 35 }, { x: 105, y: 65 }],
+      { width: 200, height: 100 },
+      12,
+    );
+
+    expect(fragments).toEqual([]);
+  });
 });
