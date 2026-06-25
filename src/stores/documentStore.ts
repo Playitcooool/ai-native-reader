@@ -63,7 +63,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
   currentDocument: null,
   currentPage: 1,
   totalPages: 0,
-  zoom: 1.0,
+  zoom: 1.75,
   tocNodes: [],
   activeTocNodeId: null,
   isLoading: false,
