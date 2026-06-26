@@ -4,14 +4,25 @@ const SECTION_INTENT_RE = /\b(section|chapter|current section|current chapter|th
 
 export type AskScope =
   | { kind: "page" }
+  | { kind: "range"; startPage: number; endPage: number }
   | { kind: "section"; node: TocNode; startPage: number; endPage: number };
 
 export function inferAskScope(question: string, currentPage: number, tocNodes: TocNode[]): AskScope {
+  const explicitRange = parseExplicitPageRange(question);
+  if (explicitRange) return explicitRange;
   if (!SECTION_INTENT_RE.test(question)) return { kind: "page" };
   const node = activeTocNode(currentPage, tocNodes);
   return node
     ? { kind: "section", node, startPage: node.start_page, endPage: node.end_page ?? node.start_page }
     : { kind: "page" };
+}
+
+function parseExplicitPageRange(question: string): AskScope | null {
+  const match = question.match(/\b(?:p(?:age)?s?\.?\s*)?(\d{1,5})\s*(?:-|–|—|to|through|and)\s*(\d{1,5})\b/i);
+  if (!match || !/\b(?:p(?:age)?s?\.?)\b/i.test(question)) return null;
+  const a = Number(match[1]);
+  const b = Number(match[2]);
+  return { kind: "range", startPage: Math.min(a, b), endPage: Math.max(a, b) };
 }
 
 function activeTocNode(page: number, tocNodes: TocNode[]): TocNode | null {

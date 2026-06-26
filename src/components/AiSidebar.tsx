@@ -127,13 +127,16 @@ export default function AiSidebar({
     setInput("");
     try {
       const scope = inferAskScope(question, currentPage, tocNodes);
+      const maxPage = currentDocument.page_count ?? 9999;
+      const startPage = scope.kind === "page" ? undefined : Math.max(1, Math.min(scope.startPage, maxPage));
+      const endPage = scope.kind === "page" ? undefined : Math.max(1, Math.min(scope.endPage, maxPage));
       await runWorkflow({
         documentId: currentDocument.id,
         documentTitle: documentDisplayTitle(currentDocument),
         mode: "chapter_qa",
-        pageNumber: scope.kind === "section" ? scope.startPage : currentPage,
-        startPage: scope.kind === "section" ? scope.startPage : undefined,
-        endPage: scope.kind === "section" ? scope.endPage : undefined,
+        pageNumber: startPage ?? currentPage,
+        startPage,
+        endPage,
         tocNodeId: scope.kind === "section" ? scope.node.id : undefined,
         question,
       });

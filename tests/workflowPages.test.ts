@@ -57,6 +57,14 @@ describe("inferAskScope", () => {
     expect(inferAskScope("what does this page say?", 4, [tocNode])).toEqual({ kind: "page" });
   });
 
+  it("uses explicit page ranges in questions", () => {
+    expect(inferAskScope("what does page 20-21 say?", 4, [tocNode])).toEqual({
+      kind: "range",
+      startPage: 20,
+      endPage: 21,
+    });
+  });
+
   it("uses the active section for chapter questions", () => {
     expect(inferAskScope("summarize this chapter", 4, [tocNode])).toEqual({
       kind: "section",
