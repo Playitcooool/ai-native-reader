@@ -33,11 +33,25 @@ function primaryButton(bg = "var(--accent-color)"): CSSProperties {
 interface AiSidebarProps {
   draftInput?: string;
   onDraftConsumed?: () => void;
+  initialIndexAction?: InitialIndexAction;
+  onInitialIndexActionConsumed?: () => void;
 }
 
-export default function AiSidebar({ draftInput, onDraftConsumed }: AiSidebarProps) {
+export interface InitialIndexAction {
+  node: TocNode | null;
+  pageNumber: number;
+  summarize?: boolean;
+  sessionId?: string;
+}
+
+export default function AiSidebar({
+  draftInput,
+  onDraftConsumed,
+  initialIndexAction,
+  onInitialIndexActionConsumed,
+}: AiSidebarProps) {
   const { currentDocument, currentPage, setCurrentPage, tocNodes } = useDocumentStore();
-  const { messages, isGenerating, aiPhase, streamingContent, runWorkflow, cancelWorkflow, retryLastWorkflow, lastWorkflowInput } = useAiStore();
+  const { messages, isGenerating, aiPhase, streamingContent, runWorkflow, cancelWorkflow, retryLastWorkflow, loadSessionMessages, lastWorkflowInput } = useAiStore();
   const pushUndo = useUndoStore((s) => s.pushUndo);
   const [input, setInput] = useState("");
   const [rangeStart, setRangeStart] = useState("");
@@ -54,6 +68,28 @@ export default function AiSidebar({ draftInput, onDraftConsumed }: AiSidebarProp
     setInput(draftInput);
     onDraftConsumed?.();
   }, [draftInput, onDraftConsumed]);
+
+  useEffect(() => {
+    if (!currentDocument || !initialIndexAction) return;
+    const action = initialIndexAction;
+    onInitialIndexActionConsumed?.();
+    setShowIndex(true);
+    setSelectedIndexNode(action.node);
+    setCurrentPage(action.pageNumber);
+    if (action.sessionId) loadSessionMessages(action.sessionId);
+    if (!action.summarize || !action.node) return;
+    const endPage = action.node.end_page ?? action.node.start_page;
+    runWorkflow({
+      documentId: currentDocument.id,
+      documentTitle: documentDisplayTitle(currentDocument),
+      mode: "toc_index_qa",
+      pageNumber: action.node.start_page,
+      startPage: action.node.start_page,
+      endPage,
+      tocNodeId: action.node.id,
+      question: "Summarize this section",
+    }).catch((err) => addToast({ type: "error", message: `Index query failed: ${err}` }));
+  }, [currentDocument, initialIndexAction, onInitialIndexActionConsumed, setCurrentPage, loadSessionMessages, runWorkflow, addToast]);
 
   useEffect(() => {
     const el = listRef.current;
@@ -499,5 +535,6 @@ function modeLabel(mode: string): string {
   if (mode === "page_summary") return "page";
   if (mode === "range_summary") return "range";
   if (mode === "selection_explain") return "selection";
+  if (mode === "toc_index_qa") return "index";
   return "question";
 }

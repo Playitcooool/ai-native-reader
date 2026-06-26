@@ -9,9 +9,9 @@ use commands::library::LibraryState;
 use commands::settings::DbState;
 use std::sync::Mutex;
 use std::time::Duration;
+use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri::Emitter;
 use tauri::Manager;
-use tauri::menu::{MenuBuilder, SubmenuBuilder, MenuItemBuilder};
 
 fn handle_menu_event(app: &tauri::AppHandle, event: tauri::menu::MenuEvent) {
     if event.id() == "open_pdf" {
@@ -90,7 +90,10 @@ pub fn run() {
                 .select_all()
                 .build()?;
 
-            let menu = MenuBuilder::new(app).item(&file_menu).item(&edit_menu).build()?;
+            let menu = MenuBuilder::new(app)
+                .item(&file_menu)
+                .item(&edit_menu)
+                .build()?;
             app.set_menu(menu)?;
 
             Ok(())
@@ -110,6 +113,7 @@ pub fn run() {
             commands::pages::save_pages_text,
             commands::pages::get_page_text,
             commands::pages::get_pages_text,
+            commands::pages::get_pages_text_coverage,
             commands::pages::count_indexed_pages,
             commands::pages::search_pages_text,
             commands::pages::mark_page_text_failed,

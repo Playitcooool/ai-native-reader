@@ -5,13 +5,6 @@ export function pagesNeededForWorkflow(input: {
   endPage?: number;
 }): number[] {
   if (input.mode === "toc_index_qa") {
-    // If the caller provided the section's page range, pre-wait those pages
-    // so extraction/OCR has a chance to run before the backend call.
-    if (input.startPage && input.endPage) {
-      const start = Math.min(input.startPage, input.endPage);
-      const end = Math.max(input.startPage, input.endPage);
-      return Array.from({ length: end - start + 1 }, (_, i) => start + i);
-    }
     return [];
   }
   if (input.mode !== "range_summary" || !input.startPage || !input.endPage) {

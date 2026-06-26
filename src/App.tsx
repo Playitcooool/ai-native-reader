@@ -13,6 +13,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { ProviderSettings } from "./stores/settingsStore";
 import type { Document } from "./stores/documentStore";
+import type { InitialIndexAction } from "./components/AiSidebar";
 import { isTauriRuntime } from "./tauriRuntime";
 
 function App() {
@@ -29,11 +30,18 @@ function App() {
   const [leftOpen, setLeftOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
   const [aiInputDraft, setAiInputDraft] = useState<string>();
+  const [initialIndexAction, setInitialIndexAction] = useState<InitialIndexAction | undefined>();
 
   const openAiPanel = useCallback((draft?: string) => {
     setLeftOpen(false);
     setAiOpen(true);
     if (draft) setAiInputDraft(draft);
+  }, []);
+
+  const openIndexGuide = useCallback((action: InitialIndexAction) => {
+    setInitialIndexAction(action);
+    setLeftOpen(false);
+    setAiOpen(true);
   }, []);
 
   const goHome = useCallback(() => {
@@ -83,7 +91,7 @@ function App() {
       .catch(() => addToast({ type: "error", message: "Failed to load provider settings." }));
   }, [setSettings, addToast]);
 
-  // Auto-restore last opened document on startup
+  // Load library on startup; documents open only after the user picks one.
   useEffect(() => {
     if (!isTauriRuntime()) return;
     let cancelled = false;
@@ -94,18 +102,8 @@ function App() {
         if (cancelled) return;
         setDocuments(docs);
         setLibraryFolder(libraryFolder);
-        if (docs && docs.length > 0) {
-          const sorted = [...docs].sort(
-            (a, b) =>
-              new Date(b.last_opened_at ?? b.created_at).getTime() -
-              new Date(a.last_opened_at ?? a.created_at).getTime(),
-          );
-          if (sorted[0]) {
-            setCurrentDocument(sorted[0]);
-          }
-        }
       } catch {
-        if (!cancelled) addToast({ type: "error", message: "Failed to restore last document." });
+        if (!cancelled) addToast({ type: "error", message: "Failed to load library." });
       }
     })();
     return () => { cancelled = true; };
@@ -150,7 +148,7 @@ function App() {
         )}
         <div className="center-viewer">
           <Suspense fallback={<div style={{ padding: 24, textAlign: "center", color: "var(--text-muted)", fontSize: 13 }}>Loading…</div>}>
-            <CenterViewer onBackHome={goHome} onOpenLibrary={openLibraryPanel} onOpenAi={openAiPanel} />
+            <CenterViewer onBackHome={goHome} onOpenLibrary={openLibraryPanel} onOpenAi={openAiPanel} onOpenIndexGuide={openIndexGuide} />
           </Suspense>
         </div>
         {leftOpen && (
@@ -166,7 +164,12 @@ function App() {
             <aside className="ai-sheet" onMouseDown={(e) => e.stopPropagation()}>
               <button aria-label="Close AI" className="sheet-close" onClick={() => setAiOpen(false)}>×</button>
             <Suspense fallback={<div style={{ padding: 24, textAlign: "center", color: "var(--text-muted)", fontSize: 13 }}>Loading…</div>}>
-              <AiSidebar draftInput={aiInputDraft} onDraftConsumed={() => setAiInputDraft(undefined)} />
+              <AiSidebar
+                draftInput={aiInputDraft}
+                onDraftConsumed={() => setAiInputDraft(undefined)}
+                initialIndexAction={initialIndexAction}
+                onInitialIndexActionConsumed={() => setInitialIndexAction(undefined)}
+              />
             </Suspense>
             </aside>
           </div>

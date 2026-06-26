@@ -1,9 +1,10 @@
-use serde::Serialize;
-use tauri::Manager;
-use tauri::State;
 use chrono::Utc;
+use serde::Serialize;
+use std::collections::BTreeMap;
 use std::env;
 use std::path::Path;
+use tauri::Manager;
+use tauri::State;
 
 use super::settings::DbState;
 use crate::ai::context_builder::cache_page_text;
@@ -42,6 +43,13 @@ pub struct PageText {
     pub document_id: String,
     pub page_number: i64,
     pub text: Option<String>,
+    pub text_status: String,
+    pub char_count: i64,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct PageTextCoverage {
+    pub page_number: i64,
     pub text_status: String,
     pub char_count: i64,
 }
@@ -119,21 +127,69 @@ pub fn get_pages_text(
         .map_err(|e| e.to_string())?;
 
     let pages = stmt
-        .query_map(rusqlite::params![document_id, start_page, end_page], |row| {
-            Ok(PageText {
-                id: row.get(0)?,
-                document_id: row.get(1)?,
-                page_number: row.get(2)?,
-                text: row.get(3)?,
-                text_status: row.get(4)?,
-                char_count: row.get(5)?,
-            })
-        })
+        .query_map(
+            rusqlite::params![document_id, start_page, end_page],
+            |row| {
+                Ok(PageText {
+                    id: row.get(0)?,
+                    document_id: row.get(1)?,
+                    page_number: row.get(2)?,
+                    text: row.get(3)?,
+                    text_status: row.get(4)?,
+                    char_count: row.get(5)?,
+                })
+            },
+        )
         .map_err(|e| e.to_string())?
         .filter_map(|r| r.ok())
         .collect();
 
     Ok(pages)
+}
+
+#[tauri::command]
+pub fn get_pages_text_coverage(
+    db: State<DbState>,
+    document_id: String,
+    start_page: i64,
+    end_page: i64,
+) -> Result<Vec<PageTextCoverage>, String> {
+    let start = start_page.min(end_page).max(1);
+    let end = start_page.max(end_page).max(start);
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT page_number, text_status, char_count
+             FROM pages WHERE document_id = ?1 AND page_number BETWEEN ?2 AND ?3
+             ORDER BY page_number",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let rows: BTreeMap<i64, PageTextCoverage> = stmt
+        .query_map(rusqlite::params![document_id, start, end], |row| {
+            let page_number = row.get(0)?;
+            Ok((
+                page_number,
+                PageTextCoverage {
+                    page_number,
+                    text_status: row.get(1)?,
+                    char_count: row.get(2)?,
+                },
+            ))
+        })
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    Ok((start..=end)
+        .map(|page_number| {
+            rows.get(&page_number).cloned().unwrap_or(PageTextCoverage {
+                page_number,
+                text_status: "missing".into(),
+                char_count: 0,
+            })
+        })
+        .collect())
 }
 
 #[tauri::command]
@@ -200,7 +256,12 @@ fn snippet(text: &str, query: &str, radius: usize) -> String {
     let Some(pos) = haystack.find(&needle) else {
         return text.chars().take(radius * 2).collect();
     };
-    let start = text[..pos].char_indices().rev().nth(radius).map(|(i, _)| i).unwrap_or(0);
+    let start = text[..pos]
+        .char_indices()
+        .rev()
+        .nth(radius)
+        .map(|(i, _)| i)
+        .unwrap_or(0);
     let end = text[pos..]
         .char_indices()
         .nth(query.chars().count() + radius)
