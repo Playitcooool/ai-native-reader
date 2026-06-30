@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { convertFileSrc } from "@tauri-apps/api/core";
 import ePub from "epubjs";
 import type { Book, Rendition } from "epubjs";
 import { useDocumentStore } from "../../stores/documentStore";
@@ -9,7 +8,6 @@ import { Icon } from "../../components/Icons";
 import EpubInkOverlay from "../ink/EpubInkOverlay";
 import InkToolbarControls from "../ink/InkToolbarControls";
 import type { InkToolState } from "../ink/inkGeometry";
-import { isTauriRuntime } from "../../tauriRuntime";
 
 interface EpubViewerProps {
   documentId: string;
@@ -47,10 +45,10 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
 
     const load = async () => {
       try {
-        const filePath = currentDocument?.file_path;
-        const loadBytes = async () =>
-          ePub((new Uint8Array(await invoke<number[] | Uint8Array>("read_document_bytes", { documentId }))).buffer as ArrayBuffer);
-        const book = isTauriRuntime() && filePath ? ePub(convertFileSrc(filePath)) : await loadBytes();
+        const data = await invoke<number[] | Uint8Array>("read_document_bytes", { documentId });
+        const book = ePub(new Uint8Array(data).buffer as ArrayBuffer);
+        await book.ready;
+        if (destroyed) return;
         bookRef.current = book;
 
         const rendition = book.renderTo(containerRef.current!, {
