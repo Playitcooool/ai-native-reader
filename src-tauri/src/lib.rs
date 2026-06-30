@@ -68,14 +68,20 @@ pub fn run() {
             let open_folder = MenuItemBuilder::with_id("open_folder", "Open Folder…")
                 .accelerator("CmdOrCtrl+Shift+O")
                 .build(app)?;
-            let quit = MenuItemBuilder::with_id("quit", "Quit")
-                .accelerator("CmdOrCtrl+Q")
-                .build(app)?;
+            let app_menu = SubmenuBuilder::new(app, "RustyBooks")
+                .about(None)
+                .separator()
+                .services()
+                .separator()
+                .hide()
+                .hide_others()
+                .show_all()
+                .separator()
+                .quit()
+                .build()?;
             let file_menu = SubmenuBuilder::new(app, "File")
                 .item(&open)
                 .item(&open_folder)
-                .separator()
-                .item(&quit)
                 .build()?;
 
             // macOS routes Cmd+C/V/X/A through the menu system; without an Edit
@@ -90,9 +96,21 @@ pub fn run() {
                 .select_all()
                 .build()?;
 
+            let window_menu = SubmenuBuilder::new(app, "Window")
+                .minimize()
+                .maximize()
+                .fullscreen()
+                .separator()
+                .close_window()
+                .separator()
+                .bring_all_to_front()
+                .build()?;
+
             let menu = MenuBuilder::new(app)
+                .item(&app_menu)
                 .item(&file_menu)
                 .item(&edit_menu)
+                .item(&window_menu)
                 .build()?;
             app.set_menu(menu)?;
 
