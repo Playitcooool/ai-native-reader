@@ -1,6 +1,5 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import type { PDFDocumentProxy, PDFPageProxy } from "pdfjs-dist";
-import { invoke } from "@tauri-apps/api/core";
 import type { Annotation } from "../../stores/notesStore";
 import InkCanvasOverlay from "../ink/InkCanvasOverlay";
 import type { InkToolState } from "../ink/inkGeometry";
@@ -14,7 +13,7 @@ interface PageViewProps {
   top: number;
   width: number;
   height: number;
-  highlightRefreshKey?: number;
+  annotations: Annotation[];
   inkToolState: InkToolState;
   onSelection: (text: string, anchor: {
     pageNumber: number;
@@ -41,7 +40,7 @@ export default memo(function PageView({
   top,
   width,
   height,
-  highlightRefreshKey = 0,
+  annotations,
   inkToolState,
   onSelection,
 }: PageViewProps) {
@@ -55,7 +54,6 @@ export default memo(function PageView({
   const prevZoomRef = useRef(zoom);
   const [phase, setPhase] = useState<Phase>("loading");
   const [errMsg, setErrMsg] = useState<string | null>(null);
-  const [annotations, setAnnotations] = useState<Annotation[]>([]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -131,18 +129,6 @@ export default memo(function PageView({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pageNum, pdf]);
-
-  useEffect(() => {
-    let dead = false;
-    invoke<Annotation[]>("get_annotations_for_page", { documentId, pageNumber: pageNum })
-      .then((rows) => {
-        if (!dead) setAnnotations(rows);
-      })
-      .catch(() => {
-        if (!dead) setAnnotations([]);
-      });
-    return () => { dead = true; };
-  }, [documentId, pageNum, highlightRefreshKey]);
 
   // Zoom transition: CSS scale → re-render into back canvas → cross-fade
   useEffect(() => {

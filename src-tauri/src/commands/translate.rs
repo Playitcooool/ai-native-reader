@@ -57,9 +57,7 @@ pub async fn translate_text(
                 match rows.next() {
                     Some(Ok(r)) => r,
                     _ => {
-                        return Err(
-                            "No provider configured. Open Settings to add one.".to_string()
-                        )
+                        return Err("No provider configured. Open Settings to add one.".to_string())
                     }
                 }
             }

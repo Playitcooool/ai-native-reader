@@ -1,7 +1,7 @@
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 use uuid::Uuid;
-use chrono::Utc;
 
 use super::settings::DbState;
 
@@ -120,10 +120,7 @@ pub fn save_toc_nodes(
 }
 
 #[tauri::command]
-pub fn get_toc_tree(
-    db: State<DbState>,
-    document_id: String,
-) -> Result<Vec<TocNode>, String> {
+pub fn get_toc_tree(db: State<DbState>, document_id: String) -> Result<Vec<TocNode>, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     let mut stmt = conn
         .prepare(

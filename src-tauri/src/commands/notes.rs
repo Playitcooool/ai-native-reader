@@ -1,7 +1,7 @@
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 use uuid::Uuid;
-use chrono::Utc;
 
 use super::settings::DbState;
 
@@ -111,7 +111,10 @@ pub fn get_annotations(
             )
             .map_err(|e| e.to_string())?;
         let rows = stmt
-            .query_map(rusqlite::params![input.document_id, pn, limit, offset], row_to_annotation)
+            .query_map(
+                rusqlite::params![input.document_id, pn, limit, offset],
+                row_to_annotation,
+            )
             .map_err(|e| e.to_string())?
             .filter_map(|r| r.ok())
             .collect();
@@ -125,7 +128,10 @@ pub fn get_annotations(
             )
             .map_err(|e| e.to_string())?;
         let rows = stmt
-            .query_map(rusqlite::params![input.document_id, limit, offset], row_to_annotation)
+            .query_map(
+                rusqlite::params![input.document_id, limit, offset],
+                row_to_annotation,
+            )
             .map_err(|e| e.to_string())?
             .filter_map(|r| r.ok())
             .collect();
@@ -151,7 +157,46 @@ pub fn get_annotations_for_page(
         .map_err(|e| e.to_string())?;
 
     let annotations = stmt
-        .query_map(rusqlite::params![document_id, page_number], row_to_annotation)
+        .query_map(
+            rusqlite::params![document_id, page_number],
+            row_to_annotation,
+        )
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    Ok(annotations)
+}
+
+#[tauri::command]
+pub fn get_annotations_for_pages(
+    db: State<DbState>,
+    document_id: String,
+    page_numbers: Vec<i64>,
+) -> Result<Vec<Annotation>, String> {
+    let mut pages = page_numbers;
+    pages.sort_unstable();
+    pages.dedup();
+    if pages.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    let placeholders = pages.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+    let sql = format!(
+        "SELECT id, document_id, page_number, toc_node_id, type, selected_text, note_text, color, anchor_json, created_at, updated_at
+         FROM annotations WHERE document_id = ? AND page_number IN ({})
+         ORDER BY page_number ASC, created_at DESC",
+        placeholders
+    );
+    let mut params: Vec<&dyn rusqlite::ToSql> = Vec::with_capacity(pages.len() + 1);
+    params.push(&document_id);
+    for page in &pages {
+        params.push(page);
+    }
+    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+    let annotations = stmt
+        .query_map(params.as_slice(), row_to_annotation)
         .map_err(|e| e.to_string())?
         .filter_map(|r| r.ok())
         .collect();
@@ -187,10 +232,7 @@ pub fn update_annotation(
 }
 
 #[tauri::command]
-pub fn delete_annotation(
-    db: State<DbState>,
-    annotation_id: String,
-) -> Result<(), String> {
+pub fn delete_annotation(db: State<DbState>, annotation_id: String) -> Result<(), String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     conn.execute(
         "DELETE FROM annotations WHERE id = ?1",

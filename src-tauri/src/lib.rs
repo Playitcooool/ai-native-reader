@@ -7,6 +7,7 @@ pub mod pdf;
 
 use commands::library::LibraryState;
 use commands::settings::DbState;
+use std::collections::HashSet;
 use std::sync::Mutex;
 use std::time::Duration;
 use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
@@ -43,6 +44,7 @@ pub fn run() {
             let conn = db::migrations::initialize_database(&db_path)
                 .expect("failed to initialize database");
             app.manage(DbState(Mutex::new(conn)));
+            app.manage(commands::ai::AiCancelState(Mutex::new(HashSet::new())));
             app.manage(
                 reqwest::Client::builder()
                     .connect_timeout(Duration::from_secs(10))
@@ -122,6 +124,7 @@ pub fn run() {
             commands::documents::get_documents,
             commands::documents::get_document,
             commands::documents::read_document_bytes,
+            commands::documents::mark_document_opened,
             commands::documents::update_last_page,
             commands::documents::update_last_zoom,
             commands::documents::update_page_count,
@@ -142,6 +145,7 @@ pub fn run() {
             commands::notes::create_annotation,
             commands::notes::get_annotations,
             commands::notes::get_annotations_for_page,
+            commands::notes::get_annotations_for_pages,
             commands::notes::update_annotation,
             commands::notes::delete_annotation,
             commands::settings::get_provider_settings,
@@ -156,6 +160,7 @@ pub fn run() {
             commands::ai::update_reading_state,
             commands::ai::get_citations_for_message,
             commands::ai::run_ai_workflow,
+            commands::ai::cancel_ai_workflow,
             commands::library::set_library_folder,
             commands::library::get_library_folder,
             commands::library::clear_library_folder,

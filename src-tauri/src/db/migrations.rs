@@ -163,6 +163,7 @@ fn run_migrations(conn: &Connection) -> Result<()> {
             api_key TEXT,
             model TEXT NOT NULL,
             is_default INTEGER DEFAULT 0,
+            is_translation INTEGER DEFAULT 0,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
@@ -174,16 +175,64 @@ fn run_migrations(conn: &Connection) -> Result<()> {
         );
         CREATE INDEX IF NOT EXISTS idx_reading_sessions_date ON reading_sessions(session_date);
         CREATE INDEX IF NOT EXISTS idx_annotations_doc ON annotations(document_id);
+        CREATE INDEX IF NOT EXISTS idx_annotations_doc_page_created ON annotations(document_id, page_number, created_at);
+        CREATE INDEX IF NOT EXISTS idx_documents_last_opened ON documents(last_opened_at);
+        CREATE INDEX IF NOT EXISTS idx_documents_file_path ON documents(file_path);
+        CREATE INDEX IF NOT EXISTS idx_pages_doc_status_page ON pages(document_id, text_status, page_number);
         CREATE INDEX IF NOT EXISTS idx_ai_sessions_doc ON ai_sessions(document_id);
+        CREATE INDEX IF NOT EXISTS idx_ai_sessions_reuse ON ai_sessions(document_id, scope_type, scope_json);
         CREATE INDEX IF NOT EXISTS idx_ai_messages_session ON ai_messages(session_id);
+        CREATE INDEX IF NOT EXISTS idx_provider_default ON provider_settings(is_default);
         CREATE INDEX IF NOT EXISTS idx_toc_nodes_doc ON toc_nodes(document_id);
         CREATE INDEX IF NOT EXISTS idx_toc_doc_page_end_level ON toc_nodes(document_id, start_page, end_page, level);
         ",
     )?;
 
     // Add columns for existing databases
-    let _ = conn.execute("ALTER TABLE documents ADD COLUMN document_type TEXT DEFAULT 'pdf'", []);
-    let _ = conn.execute("ALTER TABLE documents ADD COLUMN author TEXT DEFAULT NULL", []);
-    let _ = conn.execute("ALTER TABLE provider_settings ADD COLUMN is_translation INTEGER DEFAULT 0", []);
+    let _ = conn.execute(
+        "ALTER TABLE documents ADD COLUMN document_type TEXT DEFAULT 'pdf'",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE documents ADD COLUMN author TEXT DEFAULT NULL",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE provider_settings ADD COLUMN is_translation INTEGER DEFAULT 0",
+        [],
+    );
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_provider_translation ON provider_settings(is_translation)",
+        [],
+    )?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn creates_query_indexes() {
+        let conn = Connection::open_in_memory().unwrap();
+        run_migrations(&conn).unwrap();
+        for name in [
+            "idx_pages_doc_status_page",
+            "idx_annotations_doc_page_created",
+            "idx_documents_last_opened",
+            "idx_documents_file_path",
+            "idx_provider_default",
+            "idx_provider_translation",
+            "idx_ai_sessions_reuse",
+        ] {
+            let exists: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = ?1",
+                    [name],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(exists, 1, "{name}");
+        }
+    }
 }

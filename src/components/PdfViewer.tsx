@@ -5,7 +5,7 @@ import "../pdfjs";
 import { useDocumentStore } from "../stores/documentStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import { setOcrPdfRef } from "../stores/aiStore";
-import { invoke } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { extractToc, type TocNodeInput } from "../features/toc/tocTree";
 import {
   PageExtractionQueue,
@@ -22,6 +22,8 @@ import { useToast } from "./Toast";
 import ShortcutsModal from "./ShortcutsModal";
 import { Icon } from "./Icons";
 import { draftFromSelection } from "../features/ai/aiPanelHelpers";
+import { isTauriRuntime } from "../tauriRuntime";
+import type { Annotation } from "../stores/notesStore";
 
 interface PdfViewerProps {
   documentId: string;
@@ -81,6 +83,7 @@ export default function PdfViewer({ documentId, onBackHome, onOpenLibrary, onOpe
   const [searchPhase, setSearchPhase] = useState("");
   const [loadProgress, setLoadProgress] = useState(0);
   const [indexedPageCount, setIndexedPageCount] = useState(0);
+  const [annotationsByPage, setAnnotationsByPage] = useState<Record<number, Annotation[]>>({});
   const searchCancelledRef = useRef(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -169,13 +172,24 @@ export default function PdfViewer({ documentId, onBackHome, onOpenLibrary, onOpe
     const loadPdf = async () => {
       try {
         setLoadProgress(0);
-        const data = await invoke<number[] | Uint8Array>("read_document_bytes", { documentId });
-        const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(data) });
-        // pdfjs supports onProgress callback via its internal event system
-        loadingTask.onProgress = (loaded: number, total: number) => {
+        const onProgress = (loaded: number, total: number) => {
           if (total > 0) setLoadProgress(Math.round((loaded / total) * 100));
         };
-        const pdf = await loadingTask.promise;
+        const loadFromBytes = async () => {
+          const data = await invoke<number[] | Uint8Array>("read_document_bytes", { documentId });
+          const task = pdfjsLib.getDocument({ data: new Uint8Array(data) });
+          task.onProgress = onProgress;
+          return task.promise;
+        };
+        const filePath = currentDocument?.file_path;
+        let pdf: PDFDocumentProxy;
+        if (isTauriRuntime() && filePath) {
+          const task = pdfjsLib.getDocument({ url: convertFileSrc(filePath) });
+          task.onProgress = onProgress;
+          pdf = await task.promise.catch(loadFromBytes);
+        } else {
+          pdf = await loadFromBytes();
+        }
         if (destroyed) { pdf.destroy(); return; }
         pdfRef.current = pdf;
         setOcrPdfRef(pdf);
@@ -249,7 +263,7 @@ export default function PdfViewer({ documentId, onBackHome, onOpenLibrary, onOpe
   // Update extraction priority when visible range changes
   useEffect(() => {
     if (extractionRef.current && pageCount > 0) {
-      extractionRef.current.addPage(currentPage, 0);
+      extractionRef.current.setCurrentPage(currentPage, pageCount);
     }
   }, [currentPage, pageCount]);
 
@@ -467,6 +481,27 @@ export default function PdfViewer({ documentId, onBackHome, onOpenLibrary, onOpe
     return nums;
   }, [visibleRange]);
 
+  useEffect(() => {
+    let dead = false;
+    if (pageNumbers.length === 0) {
+      setAnnotationsByPage({});
+      return;
+    }
+    invoke<Annotation[]>("get_annotations_for_pages", { documentId, pageNumbers })
+      .then((rows) => {
+        if (dead) return;
+        const next: Record<number, Annotation[]> = {};
+        for (const row of rows) {
+          (next[row.page_number] ??= []).push(row);
+        }
+        setAnnotationsByPage(next);
+      })
+      .catch(() => {
+        if (!dead) setAnnotationsByPage({});
+      });
+    return () => { dead = true; };
+  }, [documentId, highlightRefreshKey, pageNumbers]);
+
   return (
     <div className="pdf-viewer">
       {/* Toolbar */}
@@ -590,7 +625,7 @@ export default function PdfViewer({ documentId, onBackHome, onOpenLibrary, onOpe
                   top={pageTops[idx] ?? 0}
                   width={pageWidthAtZoom}
                   height={pageHeightAtZoom}
-                  highlightRefreshKey={highlightRefreshKey}
+                  annotations={annotationsByPage[pageNum] ?? []}
                   inkToolState={inkToolState}
                   onSelection={handleTextSelection}
                 />

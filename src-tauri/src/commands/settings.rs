@@ -1,8 +1,8 @@
 use crate::db::models::{ProviderSettings, ProviderSettingsInput, TestProviderResult};
+use chrono::Utc;
 use std::sync::Mutex;
 use tauri::State;
 use uuid::Uuid;
-use chrono::Utc;
 
 pub struct DbState(pub Mutex<rusqlite::Connection>);
 
@@ -157,7 +157,8 @@ pub async fn test_provider(
     let base_url = base_url.ok_or("Provider is missing a base URL. Check Settings.")?;
     let api_key = api_key.ok_or("Provider is missing an API key. Check Settings.")?;
 
-    let result = crate::ai::provider::test_provider(&http_client, &base_url, &api_key, &model).await;
+    let result =
+        crate::ai::provider::test_provider(&http_client, &base_url, &api_key, &model).await;
     Ok(TestProviderResult {
         ok: result.ok,
         provider_id,

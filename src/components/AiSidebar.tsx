@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { documentDisplayTitle, useDocumentStore } from "../stores/documentStore";
 import { type AiMessage, useAiStore } from "../stores/aiStore";
@@ -6,7 +6,7 @@ import { useUndoStore } from "../stores/undoStore";
 import { inferAskScope } from "../features/ai/promptScope";
 import { draftFromSelection, shouldFollowScroll } from "../features/ai/aiPanelHelpers";
 import { useToast } from "./Toast";
-import AiMarkdown from "./AiMarkdown";
+const AiMarkdown = lazy(() => import("./AiMarkdown"));
 
 interface AiSidebarProps {
   draftInput?: string;
@@ -270,7 +270,11 @@ export default function AiSidebar({ draftInput, onDraftConsumed }: AiSidebarProp
         {messages.map((msg) => (
           <article key={msg.id} className={`ai-message ai-message-${msg.role}`} tabIndex={0}>
             <div className="ai-message-label">{msg.role === "user" ? "You" : "AI"}</div>
-            {msg.role === "assistant" ? <AiMarkdown onPageLink={jumpToPage}>{msg.content}</AiMarkdown> : <div className="ai-user-text">{msg.content}</div>}
+            {msg.role === "assistant" ? (
+              <Suspense fallback={<div className="ai-user-text">{msg.content}</div>}>
+                <AiMarkdown onPageLink={jumpToPage}>{msg.content}</AiMarkdown>
+              </Suspense>
+            ) : <div className="ai-user-text">{msg.content}</div>}
             {msg.role === "assistant" && contextWarnings(msg).length > 0 && (
               <div className="ai-context-warning">Context: {contextWarnings(msg).join(" ")}</div>
             )}
@@ -295,7 +299,7 @@ export default function AiSidebar({ draftInput, onDraftConsumed }: AiSidebarProp
               <span className="ai-message-label">AI</span>
               <button onClick={cancelWorkflow} title="Cancel">Cancel</button>
             </div>
-            <AiMarkdown onPageLink={jumpToPage}>{streamingContent}</AiMarkdown>
+            <div className="ai-user-text" style={{ whiteSpace: "pre-wrap" }}>{streamingContent}</div>
           </article>
         )}
         {isGenerating && !streamingContent && (

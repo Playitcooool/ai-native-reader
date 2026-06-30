@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import "../pdfjs";
 import { documentDisplayTitle, type Document, useDocumentStore } from "../stores/documentStore";
@@ -19,6 +19,18 @@ function formatTime(totalSeconds: number): string {
 }
 
 const coverCache = new Map<string, string>();
+const MAX_COVER_CACHE = 80;
+function cacheCover(id: string, url: string) {
+  const old = coverCache.get(id);
+  if (old) URL.revokeObjectURL(old);
+  coverCache.set(id, url);
+  while (coverCache.size > MAX_COVER_CACHE) {
+    const first = coverCache.entries().next().value as [string, string] | undefined;
+    if (!first) break;
+    coverCache.delete(first[0]);
+    URL.revokeObjectURL(first[1]);
+  }
+}
 // Concurrency pool — max 4 parallel cover renders
 const MAX_RENDERS = 4;
 let activeRenders = 0;
@@ -137,27 +149,43 @@ export default function CenterViewer({
 
 function BookCover({ doc }: { doc: Document }) {
   const [src, setSrc] = useState(() => coverCache.get(doc.id));
+  const ref = useRef<HTMLSpanElement | null>(null);
 
   useEffect(() => {
     let cancelled = false;
+    const element = ref.current;
     const cached = coverCache.get(doc.id);
     if (cached) {
       setSrc(cached);
       return;
     }
-    scheduleCoverRender(async () => {
+    const load = () => scheduleCoverRender(async () => {
       if (cancelled) return;
       const cover = await renderCover(doc.id, doc.document_type);
       if (cover && !cancelled) {
-        coverCache.set(doc.id, cover);
+        cacheCover(doc.id, cover);
         setSrc(cover);
       }
     });
-    return () => { cancelled = true; };
-  }, [doc.id]);
+    if (!element || !("IntersectionObserver" in window)) {
+      load();
+      return () => { cancelled = true; };
+    }
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) {
+        observer.disconnect();
+        load();
+      }
+    }, { rootMargin: "200px" });
+    observer.observe(element);
+    return () => {
+      cancelled = true;
+      observer.disconnect();
+    };
+  }, [doc.id, doc.document_type]);
 
   return (
-    <span className="book-cover" aria-hidden="true">
+    <span ref={ref} className="book-cover" aria-hidden="true">
       {src ? <img src={src} alt="" /> : <span>{doc.document_type === 'epub' ? 'EPUB' : 'PDF'}</span>}
     </span>
   );

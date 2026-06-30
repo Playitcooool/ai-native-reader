@@ -26,6 +26,8 @@ export function documentDisplayTitle(doc: Pick<Document, "title" | "original_fil
   return doc.title?.trim() || doc.original_filename?.trim() || doc.file_path.split("/").pop() || "Untitled";
 }
 
+const METADATA_REFRESH_LIMIT = 12;
+
 interface DocumentState {
   documents: Document[];
   currentDocument: Document | null;
@@ -73,8 +75,16 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
   _onVisibility: null,
   setDocuments: (documents) => set({ documents }),
   setCurrentDocument: (doc) => {
+    let selected = doc;
     if (doc) {
       get().startHeartbeat();
+      invoke("mark_document_opened", { documentId: doc.id }).catch(() => {});
+      const opened = { ...doc, last_opened_at: new Date().toISOString() };
+      selected = opened;
+      set((s) => ({
+        documents: [opened, ...s.documents.filter((d) => d.id !== doc.id)],
+        currentDocument: opened,
+      }));
       // EPUBs from bulk import may not have content extracted yet
       if (doc.document_type === 'epub' && doc.parse_status !== 'ready') {
         invoke("extract_epub_content", { documentId: doc.id, filePath: doc.file_path })
@@ -92,9 +102,9 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       get().stopHeartbeat();
     }
     set({
-      currentDocument: doc,
-      currentPage: doc?.last_page ?? 1,
-      zoom: doc?.last_zoom ?? 1.0,
+      currentDocument: selected,
+      currentPage: selected?.last_page ?? 1,
+      zoom: selected?.last_zoom ?? 1.0,
     });
   },
   setCurrentPage: (page) => set({ currentPage: page }),
@@ -163,14 +173,12 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       const docs = await invoke<Document[]>("get_documents");
       set({ documents: docs, isLoading: false });
       // Background-refresh metadata for documents that need it
-      for (const doc of docs) {
-        if (doc.document_type === 'pdf' && (!doc.author || doc.title === doc.original_filename)) {
-          invoke<Document>("refresh_document_metadata", {
-            documentId: doc.id, filePath: doc.file_path, documentType: doc.document_type,
-          }).then((updated) => {
-            set((s) => ({ documents: s.documents.map((d) => d.id === updated.id ? updated : d) }));
-          }).catch(() => {});
-        }
+      for (const doc of docs.filter((d) => d.document_type === 'pdf' && (!d.author || d.title === d.original_filename)).slice(0, METADATA_REFRESH_LIMIT)) {
+        invoke<Document>("refresh_document_metadata", {
+          documentId: doc.id, filePath: doc.file_path, documentType: doc.document_type,
+        }).then((updated) => {
+          set((s) => ({ documents: s.documents.map((d) => d.id === updated.id ? updated : d) }));
+        }).catch(() => {});
       }
     } catch (e) {
       set({ isLoading: false });

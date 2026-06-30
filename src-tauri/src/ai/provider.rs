@@ -136,6 +136,7 @@ pub async fn chat_completion_stream(
     temperature: Option<f64>,
     max_tokens: Option<u32>,
     on_token: impl Fn(&str),
+    is_cancelled: impl Fn() -> bool,
 ) -> Result<String, String> {
     let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
 
@@ -177,6 +178,9 @@ pub async fn chat_completion_stream(
     let mut full_text = String::new();
 
     while let Some(chunk_result) = stream.next().await {
+        if is_cancelled() {
+            return Err("cancelled".to_string());
+        }
         let chunk = match chunk_result {
             Ok(chunk) => chunk,
             Err(_) if !full_text.is_empty() => break,
@@ -206,6 +210,9 @@ pub async fn chat_completion_stream(
 
             if data.trim() == "[DONE]" {
                 return Ok(full_text);
+            }
+            if is_cancelled() {
+                return Err("cancelled".to_string());
             }
             if !data.is_empty() {
                 if let Ok(chunk) = serde_json::from_str::<SseChunk>(&data) {

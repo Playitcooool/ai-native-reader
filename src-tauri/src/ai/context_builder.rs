@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use rusqlite::Connection;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
@@ -13,7 +13,11 @@ fn get_document_type(conn: &Connection, document_id: &str) -> String {
 }
 
 fn page_label(doc_type: &str) -> &'static str {
-    if doc_type == "epub" { "ch" } else { "p" }
+    if doc_type == "epub" {
+        "ch"
+    } else {
+        "p"
+    }
 }
 
 fn page_text_cache() -> &'static Mutex<HashMap<String, String>> {
@@ -117,11 +121,18 @@ fn trim_text(text: &str, max_chars: usize) -> String {
     if text.chars().count() <= max_chars {
         text.to_string()
     } else {
-        format!("{}... [trimmed]", text.chars().take(max_chars).collect::<String>())
+        format!(
+            "{}... [trimmed]",
+            text.chars().take(max_chars).collect::<String>()
+        )
     }
 }
 
-fn spread_page_texts(page_texts: &[(i64, String)], start_page: i64, end_page: i64) -> Vec<(i64, String)> {
+fn spread_page_texts(
+    page_texts: &[(i64, String)],
+    start_page: i64,
+    end_page: i64,
+) -> Vec<(i64, String)> {
     let range_len = (end_page - start_page).abs() + 1;
     if range_len <= FULL_RANGE_PAGE_LIMIT || page_texts.len() <= LONG_RANGE_PAGE_LIMIT {
         return page_texts.to_vec();
@@ -139,8 +150,32 @@ fn spread_page_texts(page_texts: &[(i64, String)], start_page: i64, end_page: i6
 }
 
 fn question_terms(question: Option<&str>) -> Vec<String> {
-    let Some(question) = question else { return Vec::new(); };
-    let stop = ["about", "after", "again", "also", "compare", "does", "from", "have", "page", "pages", "paper", "summarize", "summary", "tell", "that", "this", "what", "when", "where", "which", "with"];
+    let Some(question) = question else {
+        return Vec::new();
+    };
+    let stop = [
+        "about",
+        "after",
+        "again",
+        "also",
+        "compare",
+        "does",
+        "from",
+        "have",
+        "page",
+        "pages",
+        "paper",
+        "summarize",
+        "summary",
+        "tell",
+        "that",
+        "this",
+        "what",
+        "when",
+        "where",
+        "which",
+        "with",
+    ];
     question
         .split(|c: char| !c.is_alphanumeric())
         .map(|term| term.to_lowercase())
@@ -164,12 +199,19 @@ fn relevant_page_texts(
         .filter(|(page, _)| !already_included.contains(page))
         .filter_map(|(page, text)| {
             let lower = text.to_lowercase();
-            let score = terms.iter().filter(|term| lower.contains(term.as_str())).count();
+            let score = terms
+                .iter()
+                .filter(|term| lower.contains(term.as_str()))
+                .count();
             (score > 0).then(|| (score, *page, text.clone()))
         })
         .collect::<Vec<_>>();
     scored.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
-    scored.into_iter().take(RELEVANT_PAGE_LIMIT).map(|(_, page, text)| (page, text)).collect()
+    scored
+        .into_iter()
+        .take(RELEVANT_PAGE_LIMIT)
+        .map(|(_, page, text)| (page, text))
+        .collect()
 }
 
 /// Format the full TOC tree as a compact indented index string.
@@ -265,11 +307,7 @@ fn get_page_text(conn: &Connection, document_id: &str, page: i64) -> Option<Stri
     None
 }
 
-fn get_recent_turns(
-    conn: &Connection,
-    session_id: &str,
-    limit: i64,
-) -> Vec<ContextItem> {
+fn get_recent_turns(conn: &Connection, session_id: &str, limit: i64) -> Vec<ContextItem> {
     let mut turns = Vec::new();
 
     if let Ok(mut stmt) = conn.prepare(
@@ -306,7 +344,9 @@ fn get_session_summary(conn: &Connection, session_id: &str) -> Option<String> {
     if let Ok(mut stmt) = conn.prepare(
         "SELECT session_summary FROM ai_sessions WHERE id = ?1 AND session_summary IS NOT NULL",
     ) {
-        if let Ok(mut rows) = stmt.query_map(rusqlite::params![session_id], |row| row.get::<_, String>(0)) {
+        if let Ok(mut rows) =
+            stmt.query_map(rusqlite::params![session_id], |row| row.get::<_, String>(0))
+        {
             return rows.next().and_then(|r| r.ok());
         }
     }
@@ -378,9 +418,13 @@ pub fn build_selection_context(
     // 4. Nearby pages within budget
     let available = MAX_CHARS_CLOUD - char_estimate;
     for offset in 1..=NEARBY_PAGES {
-        if available <= 0 { break; }
+        if available <= 0 {
+            break;
+        }
         for &page in &[page_number - offset, page_number + offset] {
-            if page < 1 { continue; }
+            if page < 1 {
+                continue;
+            }
             if let Some(text) = get_page_text(conn, document_id, page) {
                 if (text.len() as i64) < available {
                     hard_evidence.push(ContextItem {
@@ -488,9 +532,13 @@ pub fn build_page_context(
     // Nearby pages
     let available = MAX_CHARS_CLOUD - char_estimate;
     for offset in 1..=NEARBY_PAGES {
-        if available <= 0 { break; }
+        if available <= 0 {
+            break;
+        }
         for &page in &[page_number - offset, page_number + offset] {
-            if page < 1 { continue; }
+            if page < 1 {
+                continue;
+            }
             if let Some(text) = get_page_text(conn, document_id, page) {
                 if (text.len() as i64) < available {
                     hard_evidence.push(ContextItem {
@@ -572,7 +620,8 @@ pub fn build_range_context(
             "SELECT title FROM toc_nodes WHERE id = ?1",
             rusqlite::params![id],
             |row| row.get::<_, String>(0),
-        ).ok()
+        )
+        .ok()
     });
 
     let mut page_texts: Vec<(i64, String)> = Vec::new();
@@ -581,9 +630,10 @@ pub fn build_range_context(
          WHERE document_id = ?1 AND page_number BETWEEN ?2 AND ?3 AND text_status = 'ready'
          ORDER BY page_number",
     ) {
-        if let Ok(rows) = stmt.query_map(rusqlite::params![document_id, start_page, end_page], |row| {
-            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
-        }) {
+        if let Ok(rows) = stmt.query_map(
+            rusqlite::params![document_id, start_page, end_page],
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
+        ) {
             for row in rows.flatten() {
                 page_texts.push(row);
             }
@@ -623,7 +673,12 @@ pub fn build_range_context(
     }
 
     for (page, text) in relevant_page_texts(&page_texts, &included_pages, question) {
-        let entry = format!("[{}.{} relevant to question]\n{}", label, page, trim_text(&text, RELEVANT_PAGE_CHARS));
+        let entry = format!(
+            "[{}.{} relevant to question]\n{}",
+            label,
+            page,
+            trim_text(&text, RELEVANT_PAGE_CHARS)
+        );
         if char_estimate + (entry.len() as i64) <= MAX_CHARS_CLOUD {
             char_estimate += entry.len() as i64;
             hard_evidence.push(ContextItem {
@@ -640,7 +695,9 @@ pub fn build_range_context(
     }
 
     if page_texts.is_empty() {
-        warnings.push("No page text available for this range. Extraction may still be in progress.".into());
+        warnings.push(
+            "No page text available for this range. Extraction may still be in progress.".into(),
+        );
     } else if page_texts.len() < (end_page - start_page).abs() as usize + 1 {
         warnings.push(format!(
             "Using {} ready page{} from requested range {}-{}. OCR/text extraction may still be running for the rest.",
@@ -684,7 +741,11 @@ pub fn build_range_context(
         document_id: document_id.to_string(),
         session_id: session_id.map(|s| s.to_string()),
         mode: mode.into(),
-        scope_type: if toc_node_id.is_some() { "section".into() } else { "range".into() },
+        scope_type: if toc_node_id.is_some() {
+            "section".into()
+        } else {
+            "range".into()
+        },
         hard_evidence,
         soft_memory,
         citation_targets: vec![],
@@ -707,7 +768,11 @@ pub fn build_pages_context(
     let mut char_estimate: i64 = 0;
     let doc_type = get_document_type(conn, document_id);
     let label = page_label(&doc_type);
-    let mut pages = pages.iter().copied().filter(|page| *page >= 1).collect::<Vec<_>>();
+    let mut pages = pages
+        .iter()
+        .copied()
+        .filter(|page| *page >= 1)
+        .collect::<Vec<_>>();
     pages.sort_unstable();
     pages.dedup();
 
@@ -727,7 +792,10 @@ pub fn build_pages_context(
                         is_hard_evidence: true,
                     });
                 } else {
-                    warnings.push(format!("Selected pages exceed context budget; stopped before page {}.", page));
+                    warnings.push(format!(
+                        "Selected pages exceed context budget; stopped before page {}.",
+                        page
+                    ));
                     break;
                 }
             }
@@ -789,8 +857,9 @@ pub fn build_toc_index_context(
     }
 
     // 2. Resolve target TOC node → section page range
-    let (section_title, section_start, section_end) = if !toc_node_id.is_empty() {
-        conn.query_row(
+    let (section_title, section_start, section_end) =
+        if !toc_node_id.is_empty() {
+            conn.query_row(
             "SELECT title, start_page, COALESCE(end_page, start_page) FROM toc_nodes WHERE id = ?1",
             rusqlite::params![toc_node_id],
             |row| Ok((
@@ -799,9 +868,9 @@ pub fn build_toc_index_context(
                 row.get::<_, i64>(2)?,
             )),
         ).unwrap_or_else(|_| (String::new(), 1, 1))
-    } else {
-        (String::new(), 1, 1)
-    };
+        } else {
+            (String::new(), 1, 1)
+        };
 
     // 3. Fetch section page texts (budget: MAX_CHARS_CLOUD minus what we've used)
     if !section_title.is_empty() {
@@ -810,9 +879,10 @@ pub fn build_toc_index_context(
              WHERE document_id = ?1 AND page_number BETWEEN ?2 AND ?3 AND text_status = 'ready'
              ORDER BY page_number",
         ) {
-            if let Ok(rows) = stmt.query_map(rusqlite::params![document_id, section_start, section_end], |row| {
-                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
-            }) {
+            if let Ok(rows) = stmt.query_map(
+                rusqlite::params![document_id, section_start, section_end],
+                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
+            ) {
                 for row in rows.flatten() {
                     let (page, text) = row;
                     let entry = format!("[{}.{}]\n{}", label, page, text);
@@ -839,7 +909,10 @@ pub fn build_toc_index_context(
                 }
             }
         } else {
-            warnings.push(format!("Section {} has no extracted pages yet.", toc_node_id));
+            warnings.push(format!(
+                "Section {} has no extracted pages yet.",
+                toc_node_id
+            ));
         }
 
         // Section context breadcrumb
@@ -847,7 +920,10 @@ pub fn build_toc_index_context(
             id: "section_context".into(),
             kind: "toc_breadcrumb".into(),
             priority: 5,
-            text: format!("Target section: {} ({}.{}-{})", section_title, label, section_start, section_end),
+            text: format!(
+                "Target section: {} ({}.{}-{})",
+                section_title, label, section_start, section_end
+            ),
             page_number: None,
             toc_node_id: Some(toc_node_id.to_string()),
             is_hard_evidence: true,
@@ -913,13 +989,21 @@ pub fn build_context_pack_for_mode(
             let text = selected_text.unwrap_or("");
             build_selection_context(conn, document_id, title, page_number, text, session_id)
         }
-        "page_summary" => {
-            build_page_context(conn, document_id, title, page_number, session_id)
-        }
+        "page_summary" => build_page_context(conn, document_id, title, page_number, session_id),
         "range_summary" | "range_qa" => {
             let s = start_page.unwrap_or(page_number);
             let e = end_page.unwrap_or(page_number);
-            build_range_context(conn, document_id, title, s, e, mode, if mode == "range_qa" { question } else { None }, session_id, None)
+            build_range_context(
+                conn,
+                document_id,
+                title,
+                s,
+                e,
+                mode,
+                if mode == "range_qa" { question } else { None },
+                session_id,
+                None,
+            )
         }
         "pages_qa" => {
             let pages = page_numbers.unwrap_or(&[]);
@@ -928,15 +1012,23 @@ pub fn build_context_pack_for_mode(
         "chapter_qa" => {
             let s = start_page.unwrap_or(page_number);
             let e = end_page.unwrap_or(page_number);
-            build_range_context(conn, document_id, title, s, e, "chapter_qa", question, session_id, toc_node_id)
+            build_range_context(
+                conn,
+                document_id,
+                title,
+                s,
+                e,
+                "chapter_qa",
+                question,
+                session_id,
+                toc_node_id,
+            )
         }
         "toc_index_qa" => {
             let nid = toc_node_id.unwrap_or("");
             build_toc_index_context(conn, document_id, title, nid, session_id)
         }
-        _ => {
-            build_page_context(conn, document_id, title, page_number, session_id)
-        }
+        _ => build_page_context(conn, document_id, title, page_number, session_id),
     }
 }
 
@@ -961,12 +1053,14 @@ mod tests {
                 char_count INTEGER
             )",
             [],
-        ).unwrap();
+        )
+        .unwrap();
         conn.execute(
             "INSERT INTO pages (document_id, page_number, text, text_status, char_count)
              VALUES ('doc', 20, 'twenty', 'ready', 6), ('doc', 21, 'twenty one', 'ready', 10)",
             [],
-        ).unwrap();
+        )
+        .unwrap();
 
         let pack = build_context_pack_for_mode(
             &conn,
@@ -1005,13 +1099,15 @@ mod tests {
                 char_count INTEGER
             )",
             [],
-        ).unwrap();
+        )
+        .unwrap();
         for page in 1..=100 {
             conn.execute(
                 "INSERT INTO pages (document_id, page_number, text, text_status, char_count)
                  VALUES ('doc', ?1, ?2, 'ready', 20)",
                 rusqlite::params![page, format!("page {}", page)],
-            ).unwrap();
+            )
+            .unwrap();
         }
 
         let pack = build_context_pack_for_mode(
@@ -1053,7 +1149,8 @@ mod tests {
                 char_count INTEGER
             )",
             [],
-        ).unwrap();
+        )
+        .unwrap();
         for page in 1..=100 {
             let text = if page == 42 {
                 "needle concept appears here".to_string()
@@ -1064,7 +1161,8 @@ mod tests {
                 "INSERT INTO pages (document_id, page_number, text, text_status, char_count)
                  VALUES ('doc', ?1, ?2, 'ready', 20)",
                 rusqlite::params![page, text],
-            ).unwrap();
+            )
+            .unwrap();
         }
 
         let pack = build_context_pack_for_mode(
@@ -1100,7 +1198,8 @@ mod tests {
                 char_count INTEGER
             )",
             [],
-        ).unwrap();
+        )
+        .unwrap();
         conn.execute(
             "INSERT INTO pages (document_id, page_number, text, text_status, char_count)
              VALUES ('doc', 2, 'two', 'ready', 3), ('doc', 5, 'five', 'ready', 4), ('doc', 9, 'nine', 'ready', 4)",

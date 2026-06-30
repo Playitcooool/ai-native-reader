@@ -133,18 +133,6 @@ function DocItem({ doc, currentId, onSelect, onContextMenu }: {
 }) {
   const isActive = doc.id === currentId;
 
-  // Lazy metadata refresh for documents imported before metadata extraction existed
-  useEffect(() => {
-    if (doc.document_type !== 'pdf' || doc.author) return;
-    invoke<Document>("refresh_document_metadata", {
-      documentId: doc.id, filePath: doc.file_path, documentType: doc.document_type,
-    }).then((updated) => {
-      useDocumentStore.getState().setDocuments(
-        useDocumentStore.getState().documents.map((d) => d.id === updated.id ? updated : d)
-      );
-    }).catch(() => {});
-  }, [doc.id, doc.document_type, doc.author, doc.file_path]);
-
   return (
     <button
       onClick={() => onSelect(doc)}

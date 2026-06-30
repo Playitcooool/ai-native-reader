@@ -18,6 +18,17 @@ export interface TextHighlight {
   anchor_json?: string | null;
 }
 
+const textContentCache = new WeakMap<PDFPageProxy, Promise<{ items: unknown[] }>>();
+
+export function getCachedTextContent(page: PDFPageProxy): Promise<{ items: unknown[] }> {
+  let cached = textContentCache.get(page);
+  if (!cached) {
+    cached = page.getTextContent() as Promise<{ items: unknown[] }>;
+    textContentCache.set(page, cached);
+  }
+  return cached;
+}
+
 interface PdfTextLayerProps {
   page: PDFPageProxy;
   scale: number;
@@ -29,6 +40,7 @@ interface PdfTextLayerProps {
 
 export default memo(function PdfTextLayer({ page, scale, onSelection, containerWidth, containerHeight, highlights = [] }: PdfTextLayerProps) {
   const layerRef = useRef<HTMLDivElement>(null);
+  const [items, setItems] = useState<TextItem[]>([]);
   const [spans, setSpans] = useState<TextSpan[]>([]);
   const spanHighlightColors = useMemo(() => getHighlightColors(spans, highlights), [spans, highlights]);
 
@@ -36,21 +48,23 @@ export default memo(function PdfTextLayer({ page, scale, onSelection, containerW
     let cancelled = false;
     const buildLayer = async () => {
       try {
-        const textContent = await page.getTextContent();
+        const textContent = await getCachedTextContent(page);
         if (cancelled) return;
-        const viewport = page.getViewport({ scale });
-        const items = textContent.items as TextItem[];
-        const textSpans: TextSpan[] = items
-          .filter((item) => item.str?.trim().length > 0)
-          .map((item) => buildTextSpan(item, viewport.transform, scale));
-        if (!cancelled) setSpans(textSpans);
+        setItems(textContent.items as TextItem[]);
       } catch (err) {
         console.warn("Failed to build text layer:", err);
       }
     };
     buildLayer();
     return () => { cancelled = true; };
-  }, [page, scale]);
+  }, [page]);
+
+  useEffect(() => {
+    const viewport = page.getViewport({ scale });
+    setSpans(items
+      .filter((item) => item.str?.trim().length > 0)
+      .map((item) => buildTextSpan(item, viewport.transform, scale)));
+  }, [items, page, scale]);
 
   const handleMouseUp = () => {
     const sel = window.getSelection();

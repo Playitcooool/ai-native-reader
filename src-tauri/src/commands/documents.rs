@@ -1,11 +1,11 @@
+use super::settings::DbState;
 use crate::db::models::Document;
+use chrono::Utc;
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::PathBuf;
 use tauri::State;
 use uuid::Uuid;
-use chrono::Utc;
-use super::settings::DbState;
 
 use std::io::Read;
 
@@ -14,7 +14,9 @@ pub(crate) fn compute_sha256(path: &str) -> Result<String, String> {
     let mut hasher = Sha256::new();
     let mut buf = [0u8; 65536];
     loop {
-        let n = file.read(&mut buf).map_err(|e| format!("Failed to read file: {}", e))?;
+        let n = file
+            .read(&mut buf)
+            .map_err(|e| format!("Failed to read file: {}", e))?;
         if n == 0 {
             break;
         }
@@ -177,6 +179,18 @@ pub fn read_document_bytes(db: State<DbState>, document_id: String) -> Result<Ve
 }
 
 #[tauri::command]
+pub fn mark_document_opened(db: State<DbState>, document_id: String) -> Result<(), String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    let now = Utc::now().to_rfc3339();
+    conn.execute(
+        "UPDATE documents SET last_opened_at = ?1, updated_at = ?1 WHERE id = ?2",
+        rusqlite::params![now, document_id],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
 pub fn update_last_page(
     db: State<DbState>,
     document_id: String,
@@ -193,11 +207,7 @@ pub fn update_last_page(
 }
 
 #[tauri::command]
-pub fn update_last_zoom(
-    db: State<DbState>,
-    document_id: String,
-    zoom: f64,
-) -> Result<(), String> {
+pub fn update_last_zoom(db: State<DbState>, document_id: String, zoom: f64) -> Result<(), String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     let now = Utc::now().to_rfc3339();
     conn.execute(
@@ -283,7 +293,10 @@ pub fn refresh_document_metadata(
 #[tauri::command]
 pub fn delete_document(db: State<DbState>, document_id: String) -> Result<(), String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
-    conn.execute("DELETE FROM documents WHERE id = ?1", rusqlite::params![document_id])
-        .map_err(|e| e.to_string())?;
+    conn.execute(
+        "DELETE FROM documents WHERE id = ?1",
+        rusqlite::params![document_id],
+    )
+    .map_err(|e| e.to_string())?;
     Ok(())
 }

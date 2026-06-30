@@ -1,12 +1,16 @@
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
+use std::sync::Mutex;
 use tauri::Emitter;
 use tauri::State;
 use uuid::Uuid;
-use chrono::Utc;
 
 use crate::ai::context_builder::{self, ContextPack};
 use crate::ai::provider::{self, ChatMessage};
 use crate::commands::settings::DbState;
+
+pub struct AiCancelState(pub Mutex<HashSet<String>>);
 
 // ---------------------------------------------------------------------------
 // Session commands
@@ -72,7 +76,14 @@ pub fn get_or_create_ai_session(
     conn.execute(
         "INSERT INTO ai_sessions (id, document_id, scope_type, scope_json, created_at, updated_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        rusqlite::params![id, input.document_id, input.scope_type, input.scope_json, now, now],
+        rusqlite::params![
+            id,
+            input.document_id,
+            input.scope_type,
+            input.scope_json,
+            now,
+            now
+        ],
     )
     .map_err(|e| e.to_string())?;
 
@@ -416,10 +427,21 @@ pub fn update_reading_state(
         .ok();
 
     // Build the update
-    let page = input.current_page_number.unwrap_or(existing.as_ref().map(|r| r.current_page_number).unwrap_or(1));
-    let toc_id = input.current_toc_node_id.or(existing.as_ref().and_then(|r| r.current_toc_node_id.clone()));
-    let progress = input.progress_ratio.or(existing.as_ref().and_then(|r| r.progress_ratio));
-    let selection = input.last_selection_anchor.or(existing.as_ref().and_then(|r| r.last_selection_anchor_json.clone()));
+    let page = input.current_page_number.unwrap_or(
+        existing
+            .as_ref()
+            .map(|r| r.current_page_number)
+            .unwrap_or(1),
+    );
+    let toc_id = input.current_toc_node_id.or(existing
+        .as_ref()
+        .and_then(|r| r.current_toc_node_id.clone()));
+    let progress = input
+        .progress_ratio
+        .or(existing.as_ref().and_then(|r| r.progress_ratio));
+    let selection = input.last_selection_anchor.or(existing
+        .as_ref()
+        .and_then(|r| r.last_selection_anchor_json.clone()));
 
     // Update recent pages
     let recent = if let Some(new_page) = input.recent_page_number {
@@ -436,7 +458,10 @@ pub fn update_reading_state(
         existing.as_ref().and_then(|r| r.recent_pages_json.clone())
     };
 
-    let last_opened = existing.as_ref().and_then(|r| r.last_opened_at.clone()).unwrap_or_else(|| now.clone());
+    let last_opened = existing
+        .as_ref()
+        .and_then(|r| r.last_opened_at.clone())
+        .unwrap_or_else(|| now.clone());
 
     conn.execute(
         "INSERT OR REPLACE INTO reading_states
@@ -518,6 +543,19 @@ pub struct RunAiWorkflowInput {
     pub toc_node_id: Option<String>,
 }
 
+#[tauri::command]
+pub fn cancel_ai_workflow(
+    cancel_state: State<AiCancelState>,
+    document_id: String,
+) -> Result<(), String> {
+    cancel_state
+        .0
+        .lock()
+        .map_err(|e| e.to_string())?
+        .insert(document_id);
+    Ok(())
+}
+
 #[derive(Debug, Serialize)]
 pub struct AiWorkflowResult {
     pub message_id: String,
@@ -531,18 +569,32 @@ pub async fn run_ai_workflow(
     app: tauri::AppHandle,
     http_client: State<'_, reqwest::Client>,
     db: State<'_, DbState>,
+    cancel_state: State<'_, AiCancelState>,
     input: RunAiWorkflowInput,
 ) -> Result<AiWorkflowResult, String> {
+    cancel_state
+        .0
+        .lock()
+        .map_err(|e| e.to_string())?
+        .remove(&input.document_id);
+
     // 1. Resolve session
     let scope_type = &input.mode;
     let (scope_json, session_id) = {
-        let sid = input.existing_session_id.clone().unwrap_or_else(|| Uuid::new_v4().to_string());
+        let sid = input
+            .existing_session_id
+            .clone()
+            .unwrap_or_else(|| Uuid::new_v4().to_string());
         let scope = format!("{{\"scopeType\":\"{}\"}}", input.mode);
         (scope, sid)
     };
 
     // 2. Build context & read provider settings (single DB lock)
-    app.emit("ai-phase-change", serde_json::json!({"phase": "building_context"})).ok();
+    app.emit(
+        "ai-phase-change",
+        serde_json::json!({"phase": "building_context"}),
+    )
+    .ok();
     let title = input.document_title.as_deref().unwrap_or("Untitled");
 
     let context_pack;
@@ -583,7 +635,11 @@ pub async fn run_ai_workflow(
                 .map_err(|e| e.to_string())?;
             match rows.next() {
                 Some(Ok(r)) => r,
-                _ => return Err("No default provider configured. Open Settings to add one.".to_string()),
+                _ => {
+                    return Err(
+                        "No default provider configured. Open Settings to add one.".to_string()
+                    )
+                }
             }
         };
         let (bu, ak, m) = provider_row;
@@ -601,9 +657,14 @@ pub async fn run_ai_workflow(
                     "SELECT start_page FROM toc_nodes WHERE id = ?1",
                     rusqlite::params![nid],
                     |row| row.get::<_, i64>(0),
-                ).unwrap_or(input.page_number)
-            } else { input.page_number }
-        } else { 1 };
+                )
+                .unwrap_or(input.page_number)
+            } else {
+                input.page_number
+            }
+        } else {
+            1
+        };
         section_end = if input.mode == "chapter_qa" {
             if let Some(end) = input.end_page {
                 end
@@ -612,9 +673,14 @@ pub async fn run_ai_workflow(
                     "SELECT COALESCE(end_page, start_page) FROM toc_nodes WHERE id = ?1",
                     rusqlite::params![nid],
                     |row| row.get::<_, i64>(0),
-                ).unwrap_or(input.page_number)
-            } else { input.page_number }
-        } else { 1 };
+                )
+                .unwrap_or(input.page_number)
+            } else {
+                input.page_number
+            }
+        } else {
+            1
+        };
     } // DB lock released here
 
     // 3. Build prompt messages
@@ -633,13 +699,18 @@ pub async fn run_ai_workflow(
     }
 
     let has_pdf_text = context_pack.hard_evidence.iter().any(|item| {
-        matches!(item.kind.as_str(), "page_text" | "range_text" | "page_set_text" | "selected_text")
+        matches!(
+            item.kind.as_str(),
+            "page_text" | "range_text" | "page_set_text" | "selected_text"
+        )
     });
     if !has_pdf_text {
         return Err("No readable text is available for this request yet. OCR may still be running; try again after it finishes.".into());
     }
 
-    let toc_path = context_pack.hard_evidence.iter()
+    let toc_path = context_pack
+        .hard_evidence
+        .iter()
         .find(|item| item.kind == "toc_breadcrumb")
         .map(|item| item.text.trim_start_matches("Section: "))
         .unwrap_or("");
@@ -654,7 +725,13 @@ pub async fn run_ai_workflow(
     let (system_prompt, user_prompt) = match input.mode.as_str() {
         "selection_explain" => {
             let sel = input.selected_text.as_deref().unwrap_or("");
-            crate::ai::prompts::explain_selection(title, input.page_number, toc_path, sel, &evidence_text)
+            crate::ai::prompts::explain_selection(
+                title,
+                input.page_number,
+                toc_path,
+                sel,
+                &evidence_text,
+            )
         }
         "page_summary" => {
             crate::ai::prompts::summarize_page(title, input.page_number, toc_path, &evidence_text)
@@ -666,7 +743,15 @@ pub async fn run_ai_workflow(
         }
         "chapter_qa" => {
             let q = input.question.as_deref().unwrap_or("");
-            crate::ai::prompts::ask_current_section(title, input.page_number, toc_path, section_start, section_end, q, &evidence_text)
+            crate::ai::prompts::ask_current_section(
+                title,
+                input.page_number,
+                toc_path,
+                section_start,
+                section_end,
+                q,
+                &evidence_text,
+            )
         }
         "range_qa" => {
             let q = input.question.as_deref().unwrap_or("");
@@ -676,15 +761,23 @@ pub async fn run_ai_workflow(
         }
         "pages_qa" => {
             let q = input.question.as_deref().unwrap_or("");
-            let pages = input.page_numbers.clone().unwrap_or_else(|| vec![input.page_number]);
+            let pages = input
+                .page_numbers
+                .clone()
+                .unwrap_or_else(|| vec![input.page_number]);
             crate::ai::prompts::ask_pages(title, &pages, q, &evidence_text)
         }
         "toc_index_qa" => {
-            let toc_index = context_pack.hard_evidence.iter()
+            let toc_index = context_pack
+                .hard_evidence
+                .iter()
                 .find(|item| item.kind == "full_toc_index")
                 .map(|item| item.text.as_str())
                 .unwrap_or("");
-            let q = input.question.as_deref().unwrap_or("Summarize this section");
+            let q = input
+                .question
+                .as_deref()
+                .unwrap_or("Summarize this section");
             crate::ai::prompts::toc_index_qa(title, toc_index, q, &evidence_text)
         }
         _ => return Err(format!("Unknown mode: {}", input.mode)),
@@ -713,7 +806,11 @@ pub async fn run_ai_workflow(
     });
 
     // 4. Call AI provider with streaming
-    app.emit("ai-phase-change", serde_json::json!({"phase": "calling_ai"})).ok();
+    app.emit(
+        "ai-phase-change",
+        serde_json::json!({"phase": "calling_ai"}),
+    )
+    .ok();
     let answer = provider::chat_completion_stream(
         &http_client,
         &base_url,
@@ -723,11 +820,30 @@ pub async fn run_ai_workflow(
         Some(0.3),
         Some(4096),
         |token| {
-            app.emit("ai-stream-chunk", serde_json::json!({"token": token})).ok();
+            app.emit("ai-stream-chunk", serde_json::json!({"token": token}))
+                .ok();
+        },
+        || {
+            cancel_state
+                .0
+                .lock()
+                .map(|set| set.contains(&input.document_id))
+                .unwrap_or(true)
         },
     )
     .await
     .map_err(|e| format!("AI request failed: {}", e))?;
+
+    if cancel_state
+        .0
+        .lock()
+        .map_err(|e| e.to_string())?
+        .remove(&input.document_id)
+    {
+        app.emit("ai-phase-change", serde_json::json!({"phase": "cancelled"}))
+            .ok();
+        return Err("cancelled".to_string());
+    }
 
     if answer.is_empty() {
         return Err("AI returned empty response".to_string());
@@ -751,14 +867,20 @@ pub async fn run_ai_workflow(
         .map_err(|e| e.to_string())?;
 
         // Save user message
-        let user_content: String = input.selected_text.clone().or(input.question.clone()).unwrap_or_else(|| {
-            match input.mode.as_str() {
+        let user_content: String = input
+            .selected_text
+            .clone()
+            .or(input.question.clone())
+            .unwrap_or_else(|| match input.mode.as_str() {
                 "page_summary" => format!("Summarize page {}", input.page_number),
-                "range_summary" => format!("Summarize pages {}–{}", input.start_page.unwrap_or(input.page_number), input.end_page.unwrap_or(input.page_number)),
+                "range_summary" => format!(
+                    "Summarize pages {}–{}",
+                    input.start_page.unwrap_or(input.page_number),
+                    input.end_page.unwrap_or(input.page_number)
+                ),
                 "range_qa" => input.question.clone().unwrap_or_else(|| input.mode.clone()),
                 _ => input.mode.clone(),
-            }
-        });
+            });
         conn.execute(
             "INSERT INTO ai_messages (id, session_id, role, content, page_number, context_snapshot_json, created_at)
              VALUES (?1, ?2, 'user', ?3, ?4, ?5, ?6)",
@@ -784,10 +906,14 @@ pub async fn run_ai_workflow(
     }
 
     // 7. Signal streaming complete
-    app.emit("ai-stream-end", serde_json::json!({
-        "message_id": assistant_msg_id,
-        "session_id": session_id,
-    })).ok();
+    app.emit(
+        "ai-stream-end",
+        serde_json::json!({
+            "message_id": assistant_msg_id,
+            "session_id": session_id,
+        }),
+    )
+    .ok();
 
     Ok(AiWorkflowResult {
         message_id: assistant_msg_id,

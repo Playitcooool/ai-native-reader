@@ -7,7 +7,11 @@ use tauri::State;
 use uuid::Uuid;
 
 fn covers_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?.join("covers");
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("covers");
     std::fs::create_dir_all(&dir).ok();
     Ok(dir)
 }
@@ -18,7 +22,8 @@ pub fn extract_epub_content(
     document_id: String,
     file_path: String,
 ) -> Result<i32, String> {
-    let (chapters, total, toc, meta_title, meta_author) = epub::extractor::extract_chapters(&file_path)?;
+    let (chapters, total, toc, meta_title, meta_author) =
+        epub::extractor::extract_chapters(&file_path)?;
 
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     let now = Utc::now().to_rfc3339();
@@ -108,12 +113,19 @@ fn get_cached_cover_inner(app: &tauri::AppHandle, document_id: &str) -> Option<V
 }
 
 #[tauri::command]
-pub fn get_cached_cover(app: tauri::AppHandle, document_id: String) -> Result<Option<Vec<u8>>, String> {
+pub fn get_cached_cover(
+    app: tauri::AppHandle,
+    document_id: String,
+) -> Result<Option<Vec<u8>>, String> {
     Ok(get_cached_cover_inner(&app, &document_id))
 }
 
 #[tauri::command]
-pub fn cache_cover(app: tauri::AppHandle, document_id: String, data: Vec<u8>) -> Result<(), String> {
+pub fn cache_cover(
+    app: tauri::AppHandle,
+    document_id: String,
+    data: Vec<u8>,
+) -> Result<(), String> {
     let path = covers_dir(&app)?.join(&document_id);
     std::fs::write(&path, &data).map_err(|e| e.to_string())
 }

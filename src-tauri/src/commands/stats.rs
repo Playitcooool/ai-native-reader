@@ -1,6 +1,6 @@
+use super::settings::DbState;
 use tauri::State;
 use uuid::Uuid;
-use super::settings::DbState;
 
 #[tauri::command]
 pub fn record_reading_heartbeat(state: State<'_, DbState>, seconds: u64) -> Result<(), String> {
@@ -10,7 +10,8 @@ pub fn record_reading_heartbeat(state: State<'_, DbState>, seconds: u64) -> Resu
     conn.execute(
         "INSERT INTO reading_sessions (id, duration_seconds, session_date) VALUES (?1, ?2, ?3)",
         rusqlite::params![id, seconds, today],
-    ).map_err(|e| e.to_string())?;
+    )
+    .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -25,7 +26,8 @@ pub fn get_reading_stats(state: State<'_, DbState>) -> Result<serde_json::Value,
     let weekday = now.format("%u").to_string().parse::<i64>().unwrap_or(7);
     let days_from_monday = weekday - 1;
     let week_start = (now - chrono::Duration::days(days_from_monday))
-        .format("%Y-%m-%d").to_string();
+        .format("%Y-%m-%d")
+        .to_string();
 
     let today_seconds: i64 = conn.query_row(
         "SELECT COALESCE(SUM(duration_seconds), 0) FROM reading_sessions WHERE session_date = ?1",

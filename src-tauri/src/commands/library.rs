@@ -65,18 +65,14 @@ pub fn clear_library_folder(
 /// Called on app startup — reads folder path from DB and starts watcher.
 pub fn init_watcher_if_configured(app_handle: &AppHandle) {
     let db = app_handle.state::<DbState>();
-    let folder: Option<String> = db
-        .0
-        .lock()
+    let folder: Option<String> = db.0.lock().ok().and_then(|conn| {
+        conn.query_row(
+            "SELECT folder_path FROM library_folder WHERE id = 1",
+            [],
+            |row| row.get(0),
+        )
         .ok()
-        .and_then(|conn| {
-            conn.query_row(
-                "SELECT folder_path FROM library_folder WHERE id = 1",
-                [],
-                |row| row.get(0),
-            )
-            .ok()
-        });
+    });
     if let Some(ref path) = folder {
         if scan_folder_into_db(&db.0, path).is_ok() {
             let library = app_handle.state::<LibraryState>();
@@ -108,12 +104,18 @@ fn scan_folder_into_db(
     let mut pending: Vec<(String, String, String, String)> = Vec::new(); // (path, filename, sha256, doc_type)
     let mut dirs = vec![std::path::PathBuf::from(folder_path)];
     while let Some(dir) = dirs.pop() {
-        let Ok(entries) = fs::read_dir(&dir) else { continue };
+        let Ok(entries) = fs::read_dir(&dir) else {
+            continue;
+        };
         for entry in entries.filter_map(|e| e.ok()) {
             let file_path = entry.path();
             if file_path.is_dir() {
                 dirs.push(file_path);
-            } else if let Some(ext) = file_path.extension().and_then(|e| e.to_str()).map(|e| e.to_lowercase()) {
+            } else if let Some(ext) = file_path
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| e.to_lowercase())
+            {
                 if ext == "pdf" || ext == "epub" {
                     let path_str = file_path.to_string_lossy().to_string();
                     if existing.contains(&path_str) {
@@ -136,15 +138,34 @@ fn scan_folder_into_db(
     }
 
     // Extract metadata before acquiring the lock (avoids blocking DB during file I/O)
-    let enriched: Vec<(String, String, String, String, String, String, Option<String>)> = pending.iter().map(|(path_str, filename, sha256, doc_type)| {
-        let (meta_title, meta_author) = if doc_type == "pdf" {
-            crate::pdf::extract_metadata(path_str)
-        } else {
-            (None, None)
-        };
-        let title = meta_title.unwrap_or_else(|| filename.clone());
-        (Uuid::new_v4().to_string(), title, filename.clone(), path_str.clone(), sha256.clone(), doc_type.clone(), meta_author)
-    }).collect();
+    let enriched: Vec<(
+        String,
+        String,
+        String,
+        String,
+        String,
+        String,
+        Option<String>,
+    )> = pending
+        .iter()
+        .map(|(path_str, filename, sha256, doc_type)| {
+            let (meta_title, meta_author) = if doc_type == "pdf" {
+                crate::pdf::extract_metadata(path_str)
+            } else {
+                (None, None)
+            };
+            let title = meta_title.unwrap_or_else(|| filename.clone());
+            (
+                Uuid::new_v4().to_string(),
+                title,
+                filename.clone(),
+                path_str.clone(),
+                sha256.clone(),
+                doc_type.clone(),
+                meta_author,
+            )
+        })
+        .collect();
 
     // Acquire lock only for the INSERTs
     let conn = conn_mutex.lock().map_err(|e| e.to_string())?;
@@ -199,7 +220,11 @@ fn start_watcher(
             };
             let mut imported = false;
             for path in &paths {
-                if let Some(ext) = path.extension().and_then(|e| e.to_str()).map(|e| e.to_lowercase()) {
+                if let Some(ext) = path
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .map(|e| e.to_lowercase())
+                {
                     if ext == "pdf" || ext == "epub" {
                         let path_str = path.to_string_lossy().to_string();
                         let exists: bool = c
@@ -215,8 +240,7 @@ fn start_watcher(
                                 .file_name()
                                 .map(|n| n.to_string_lossy().to_string())
                                 .unwrap_or_default();
-                            let sha256 =
-                                documents::compute_sha256(&path_str).unwrap_or_default();
+                            let sha256 = documents::compute_sha256(&path_str).unwrap_or_default();
                             let doc_type = if ext == "epub" { "epub" } else { "pdf" };
                             let (meta_title, meta_author) = if doc_type == "pdf" {
                                 crate::pdf::extract_metadata(&path_str)
@@ -232,7 +256,16 @@ fn start_watcher(
                                  parse_status,has_native_toc,document_type,author)
                                  VALUES (?1,?2,?3,?4,?5,NULL,?6,?7,?8,'pending',0,?9,?10)",
                                 rusqlite::params![
-                                    id, title, filename, path_str, sha256, now, now, now, doc_type, meta_author
+                                    id,
+                                    title,
+                                    filename,
+                                    path_str,
+                                    sha256,
+                                    now,
+                                    now,
+                                    now,
+                                    doc_type,
+                                    meta_author
                                 ],
                             ) {
                                 eprintln!("Watcher: failed to insert {}: {}", filename, e);

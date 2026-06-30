@@ -135,13 +135,12 @@ pub fn ask_page_range(
     (system_message().to_string(), user)
 }
 
-pub fn ask_pages(
-    title: &str,
-    pages: &[i64],
-    question: &str,
-    evidence: &str,
-) -> (String, String) {
-    let page_list = pages.iter().map(|page| page.to_string()).collect::<Vec<_>>().join(", ");
+pub fn ask_pages(title: &str, pages: &[i64], question: &str, evidence: &str) -> (String, String) {
+    let page_list = pages
+        .iter()
+        .map(|page| page.to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
     let user = format!(
         "Task: Answer the user's question using only the requested PDF pages.\n\n\
          Document: {}\n\

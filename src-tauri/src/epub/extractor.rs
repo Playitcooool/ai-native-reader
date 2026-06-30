@@ -9,12 +9,29 @@ pub struct ChapterContent {
 }
 
 /// Extract all chapter text, TOC, and Dublin Core metadata from an EPUB file (single open).
-pub fn extract_chapters(path: &str) -> Result<(Vec<ChapterContent>, usize, Vec<(String, u32)>, Option<String>, Option<String>), String> {
-    let mut doc = EpubDoc::new(Path::new(path))
-        .map_err(|e| format!("Failed to open EPUB: {}", e))?;
+pub fn extract_chapters(
+    path: &str,
+) -> Result<
+    (
+        Vec<ChapterContent>,
+        usize,
+        Vec<(String, u32)>,
+        Option<String>,
+        Option<String>,
+    ),
+    String,
+> {
+    let mut doc =
+        EpubDoc::new(Path::new(path)).map_err(|e| format!("Failed to open EPUB: {}", e))?;
 
     // Extract metadata from the opened doc before consuming it for chapters
-    let get_val = |key: &str| doc.metadata.iter().find(|m| m.property == key).map(|m| m.value.clone()).filter(|s| !s.is_empty());
+    let get_val = |key: &str| {
+        doc.metadata
+            .iter()
+            .find(|m| m.property == key)
+            .map(|m| m.value.clone())
+            .filter(|s| !s.is_empty())
+    };
     let meta_title = get_val("title");
     let meta_author = get_val("creator");
 
@@ -48,7 +65,11 @@ pub fn extract_chapters(path: &str) -> Result<(Vec<ChapterContent>, usize, Vec<(
             .unwrap_or_else(|| format!("Chapter {}", i + 1));
 
         let text = strip_html(&html);
-        chapters.push(ChapterContent { index: i, title, text });
+        chapters.push(ChapterContent {
+            index: i,
+            title,
+            text,
+        });
     }
 
     Ok((chapters, total, toc, meta_title, meta_author))
@@ -64,8 +85,7 @@ fn collect_toc_titles(nav: &[epub::doc::NavPoint], result: &mut Vec<String>) {
 
 /// Extract TOC from EPUB navigation.
 pub fn extract_toc(path: &str) -> Result<Vec<(String, u32)>, String> {
-    let doc = EpubDoc::new(Path::new(path))
-        .map_err(|e| format!("Failed to open EPUB: {}", e))?;
+    let doc = EpubDoc::new(Path::new(path)).map_err(|e| format!("Failed to open EPUB: {}", e))?;
 
     let mut toc = Vec::new();
     flatten_nav(&doc.toc, 0, &mut toc);

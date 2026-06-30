@@ -55,6 +55,7 @@ export function setOcrPdfRef(pdf: any) {
 
 let cancelFlag = false;
 let isWorkflowRunning = false;
+let runningDocumentId: string | null = null;
 let streamBuffer = "";
 let streamTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -82,6 +83,7 @@ export const useAiStore = create<AiState>((set, get) => ({
   runWorkflow: async (input) => {
     if (isWorkflowRunning) throw new Error("An AI workflow is already running.");
     isWorkflowRunning = true;
+    runningDocumentId = input.documentId;
     set({ isGenerating: true, aiPhase: "building_context", streamingContent: "", lastWorkflowInput: input as Record<string, any> });
 
     let unlisten: UnlistenFn[] = [];
@@ -180,6 +182,7 @@ export const useAiStore = create<AiState>((set, get) => ({
 
       return result.answer_md;
     } catch (err) {
+      if (String(err).includes("cancelled")) return null;
       console.error("aiStore.runWorkflow failed:", err);
       throw err;
     } finally {
@@ -188,13 +191,17 @@ export const useAiStore = create<AiState>((set, get) => ({
       streamBuffer = "";
       cancelFlag = false;
       isWorkflowRunning = false;
+      runningDocumentId = null;
       set({ isGenerating: false, aiPhase: "", streamingContent: "" });
     }
   },
 
   cancelWorkflow: () => {
     cancelFlag = true;
-    set({ isGenerating: false, streamingContent: "" });
+    if (runningDocumentId) {
+      invoke("cancel_ai_workflow", { documentId: runningDocumentId }).catch(() => {});
+    }
+    set({ isGenerating: false, aiPhase: "cancelled", streamingContent: "" });
   },
 
   retryLastWorkflow: async () => {

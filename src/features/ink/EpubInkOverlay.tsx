@@ -96,13 +96,14 @@ export default function EpubInkOverlay({
       setAnnotationsByPage({});
       return;
     }
-    Promise.all(
-      pages.map(async (pageNumber) => {
-        const rows = await invoke<Annotation[]>("get_annotations_for_page", { documentId, pageNumber });
-        return [pageNumber, rows.filter((a) => a.type === "ink")] as const;
-      }),
-    ).then((entries) => {
-      if (!dead) setAnnotationsByPage(Object.fromEntries(entries));
+    invoke<Annotation[]>("get_annotations_for_pages", { documentId, pageNumbers: pages }).then((rows) => {
+      if (!dead) {
+        const next: Record<number, Annotation[]> = {};
+        for (const row of rows.filter((a) => a.type === "ink")) {
+          (next[row.page_number] ??= []).push(row);
+        }
+        setAnnotationsByPage(next);
+      }
     }).catch(() => {
       if (!dead) setAnnotationsByPage({});
     });

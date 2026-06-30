@@ -52,7 +52,8 @@ export function useVisibleRange({
       const { scrollTop, clientHeight } = el;
       if (pageTops.length === 0) return;
 
-      setRange(computeVisibleRange(scrollTop, clientHeight, pageHeights, pageTops, pageCount, bufferPages));
+      const next = computeVisibleRange(scrollTop, clientHeight, pageHeights, pageTops, pageCount, bufferPages);
+      setRange((prev) => prev[0] === next[0] && prev[1] === next[1] ? prev : next);
     };
 
     container.addEventListener("scroll", handleScroll, { passive: true });
