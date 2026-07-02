@@ -23,14 +23,43 @@ export interface Document {
   author: string | null;
 }
 
+export interface Collection {
+  id: string;
+  name: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DocumentCollection {
+  document_id: string;
+  collection_id: string;
+}
+
 export function documentDisplayTitle(doc: Pick<Document, "title" | "original_filename" | "file_path">): string {
   return doc.title?.trim() || doc.original_filename?.trim() || doc.file_path.split("/").pop() || "Untitled";
+}
+
+export function collectionIdsForDocument(memberships: DocumentCollection[], documentId: string): Set<string> {
+  return new Set(memberships.filter((m) => m.document_id === documentId).map((m) => m.collection_id));
+}
+
+export function filterDocumentsByCollection<T extends { id: string }>(
+  documents: T[],
+  selectedCollectionId: string | null,
+  memberships: DocumentCollection[],
+): T[] {
+  if (!selectedCollectionId) return documents;
+  const documentIds = new Set(memberships.filter((m) => m.collection_id === selectedCollectionId).map((m) => m.document_id));
+  return documents.filter((doc) => documentIds.has(doc.id));
 }
 
 const METADATA_REFRESH_LIMIT = 12;
 
 interface DocumentState {
   documents: Document[];
+  collections: Collection[];
+  documentCollections: DocumentCollection[];
+  selectedCollectionId: string | null;
   currentDocument: Document | null;
   currentPage: number;
   totalPages: number;
@@ -43,6 +72,9 @@ interface DocumentState {
   heartbeatInterval: ReturnType<typeof setInterval> | null;
   _onVisibility: (() => void) | null;
   setDocuments: (docs: Document[]) => void;
+  setCollections: (collections: Collection[]) => void;
+  setDocumentCollections: (memberships: DocumentCollection[]) => void;
+  setSelectedCollectionId: (id: string | null) => void;
   setCurrentDocument: (doc: Document | null) => void;
   setCurrentPage: (page: number) => void;
   setTotalPages: (count: number) => void;
@@ -50,6 +82,10 @@ interface DocumentState {
   setTocNodes: (nodes: TocNode[]) => void;
   setActiveTocNodeId: (id: string | null) => void;
   loadDocuments: () => Promise<void>;
+  loadCollections: () => Promise<void>;
+  createCollection: (name: string) => Promise<Collection>;
+  addDocumentToCollection: (documentId: string, collectionId: string) => Promise<void>;
+  removeDocumentFromCollection: (documentId: string, collectionId: string) => Promise<void>;
   loadToc: (documentId: string) => Promise<void>;
   handleOpenDocument: () => Promise<void>;
   handleOpenFolder: () => Promise<void>;
@@ -63,6 +99,9 @@ interface DocumentState {
 
 export const useDocumentStore = create<DocumentState>((set, get) => ({
   documents: [],
+  collections: [],
+  documentCollections: [],
+  selectedCollectionId: null,
   currentDocument: null,
   currentPage: 1,
   totalPages: 0,
@@ -75,6 +114,9 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
   heartbeatInterval: null,
   _onVisibility: null,
   setDocuments: (documents) => set({ documents }),
+  setCollections: (collections) => set({ collections }),
+  setDocumentCollections: (documentCollections) => set({ documentCollections }),
+  setSelectedCollectionId: (selectedCollectionId) => set({ selectedCollectionId }),
   setCurrentDocument: (doc) => {
     let selected = doc;
     if (doc) {
@@ -159,6 +201,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
     }
     set((s) => ({
       documents: s.documents.filter((d) => d.id !== id),
+      documentCollections: s.documentCollections.filter((m) => m.document_id !== id),
       currentDocument: s.currentDocument?.id === id ? null : s.currentDocument,
     }));
   },
@@ -173,8 +216,12 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
     if (!isTauriRuntime()) return;
     set({ isLoading: true });
     try {
-      const docs = await invoke<Document[]>("get_documents");
-      set({ documents: docs, isLoading: false });
+      const [docs, collections, documentCollections] = await Promise.all([
+        invoke<Document[]>("get_documents"),
+        invoke<Collection[]>("get_collections"),
+        invoke<DocumentCollection[]>("get_collection_memberships"),
+      ]);
+      set({ documents: docs, collections, documentCollections, isLoading: false });
       // Background-refresh metadata for documents that need it
       for (const doc of docs.filter((d) => d.document_type === 'pdf' && (!d.author || d.title === d.original_filename)).slice(0, METADATA_REFRESH_LIMIT)) {
         invoke<Document>("refresh_document_metadata", {
@@ -187,6 +234,31 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       set({ isLoading: false });
       throw e;
     }
+  },
+  loadCollections: async () => {
+    if (!isTauriRuntime()) return;
+    const [collections, documentCollections] = await Promise.all([
+      invoke<Collection[]>("get_collections"),
+      invoke<DocumentCollection[]>("get_collection_memberships"),
+    ]);
+    set({ collections, documentCollections });
+  },
+  createCollection: async (name) => {
+    const collection = await invoke<Collection>("create_collection", { name });
+    set((s) => ({ collections: [...s.collections, collection].sort((a, b) => a.name.localeCompare(b.name)) }));
+    return collection;
+  },
+  addDocumentToCollection: async (documentId, collectionId) => {
+    await invoke("add_document_to_collection", { documentId, collectionId });
+    set((s) => s.documentCollections.some((m) => m.document_id === documentId && m.collection_id === collectionId)
+      ? {}
+      : { documentCollections: [...s.documentCollections, { document_id: documentId, collection_id: collectionId }] });
+  },
+  removeDocumentFromCollection: async (documentId, collectionId) => {
+    await invoke("remove_document_from_collection", { documentId, collectionId });
+    set((s) => ({
+      documentCollections: s.documentCollections.filter((m) => m.document_id !== documentId || m.collection_id !== collectionId),
+    }));
   },
   loadToc: async (documentId) => {
     const nodes = await invoke<TocNode[]>("get_toc_tree", { documentId });

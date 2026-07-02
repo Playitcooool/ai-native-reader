@@ -1,10 +1,11 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import "../pdfjs";
-import { documentDisplayTitle, type Document, useDocumentStore } from "../stores/documentStore";
+import { documentDisplayTitle, filterDocumentsByCollection, type Document, useDocumentStore } from "../stores/documentStore";
 import PdfViewer from "./PdfViewer";
 const EpubViewer = lazy(() => import("../features/epub/EpubViewer"));
 import { useToast } from "./Toast";
+import { CollectionAssignmentMenu, CollectionFilterChips } from "./CollectionControls";
 
 function formatTime(totalSeconds: number): string {
   if (totalSeconds < 60) return `${totalSeconds}s`;
@@ -60,12 +61,49 @@ export default function CenterViewer({
   onOpenLibrary?: () => void;
   onOpenAi?: (draft?: string) => void;
 }) {
-  const { documents, currentDocument, handleOpenDocument, handleOpenFolder, setCurrentDocument, dailyStats, loadReadingStats } = useDocumentStore();
+  const {
+    documents,
+    documentCollections,
+    selectedCollectionId,
+    currentDocument,
+    handleOpenDocument,
+    handleOpenFolder,
+    setCurrentDocument,
+    dailyStats,
+    loadReadingStats,
+  } = useDocumentStore();
   const { addToast } = useToast();
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; doc: Document } | null>(null);
+  const ctxRef = useRef<HTMLDivElement>(null);
+  const visibleDocuments = filterDocumentsByCollection(documents, selectedCollectionId, documentCollections);
 
   useEffect(() => {
     loadReadingStats();
   }, [loadReadingStats]);
+
+  useEffect(() => {
+    if (!ctxMenu) return;
+    const close = (e: MouseEvent | KeyboardEvent) => {
+      if (e instanceof KeyboardEvent && e.key !== "Escape") return;
+      if (e instanceof MouseEvent && ctxRef.current?.contains(e.target as Node)) return;
+      setCtxMenu(null);
+    };
+    const id = setTimeout(() => document.addEventListener("click", close), 0);
+    document.addEventListener("keydown", close);
+    return () => {
+      clearTimeout(id);
+      document.removeEventListener("click", close);
+      document.removeEventListener("keydown", close);
+    };
+  }, [ctxMenu]);
+
+  const handleContextMenu = (e: React.MouseEvent, doc: Document) => {
+    e.preventDefault();
+    const menuW = 220, menuH = 260;
+    const x = Math.min(e.clientX, window.innerWidth - menuW);
+    const y = Math.min(e.clientY, window.innerHeight - menuH);
+    setCtxMenu({ x, y: Math.max(10, y), doc });
+  };
 
   if (currentDocument) {
     return (
@@ -122,15 +160,22 @@ export default function CenterViewer({
         </div>
       )}
 
+      <CollectionFilterChips documents={documents} />
+
       <div className="book-grid">
         {documents.length === 0 ? (
           <div className="empty-state">
             <h2>No books yet</h2>
             <p>Use Open PDF or Import Folder to add your first document.</p>
           </div>
+        ) : visibleDocuments.length === 0 ? (
+          <div className="empty-state">
+            <h2>No books in this collection</h2>
+            <p>Add books from a book's context menu.</p>
+          </div>
         ) : (
-          documents.map((doc) => (
-            <button key={doc.id} className="book-card" onClick={() => setCurrentDocument(doc)}>
+          visibleDocuments.map((doc) => (
+            <button key={doc.id} className="book-card" onClick={() => setCurrentDocument(doc)} onContextMenu={(e) => handleContextMenu(e, doc)}>
               <BookCover doc={doc} />
               <span className="book-title">{documentDisplayTitle(doc)}</span>
               {doc.author && <span className="book-meta" style={{ color: "var(--text-muted)" }}>{doc.author}</span>}
@@ -143,6 +188,16 @@ export default function CenterViewer({
           ))
         )}
       </div>
+      {ctxMenu && (
+        <div
+          ref={ctxRef}
+          className="ctx-menu"
+          style={{ left: ctxMenu.x, top: ctxMenu.y }}
+          role="menu"
+        >
+          <CollectionAssignmentMenu doc={ctxMenu.doc} onDone={() => setCtxMenu(null)} />
+        </div>
+      )}
     </div>
   );
 }

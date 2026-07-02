@@ -12,7 +12,7 @@ const AiSidebar = lazy(() => import("./components/AiSidebar"));
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { ProviderSettings } from "./stores/settingsStore";
-import type { Document } from "./stores/documentStore";
+import type { Collection, Document, DocumentCollection } from "./stores/documentStore";
 import { isTauriRuntime } from "./tauriRuntime";
 
 function App() {
@@ -23,6 +23,8 @@ function App() {
   const undoLast = useUndoStore((s) => s.undoLast);
   const setCurrentDocument = useDocumentStore((s) => s.setCurrentDocument);
   const setDocuments = useDocumentStore((s) => s.setDocuments);
+  const setCollections = useDocumentStore((s) => s.setCollections);
+  const setDocumentCollections = useDocumentStore((s) => s.setDocumentCollections);
   const setLibraryFolder = useDocumentStore((s) => s.setLibraryFolder);
   const currentDocument = useDocumentStore((s) => s.currentDocument);
   const theme = useSettingsStore((s) => s.theme);
@@ -89,17 +91,23 @@ function App() {
     let cancelled = false;
     (async () => {
       try {
-        const docs = await invoke<Document[]>("get_documents");
-        const libraryFolder = await invoke<string | null>("get_library_folder");
+        const [docs, libraryFolder, collections, documentCollections] = await Promise.all([
+          invoke<Document[]>("get_documents"),
+          invoke<string | null>("get_library_folder"),
+          invoke<Collection[]>("get_collections"),
+          invoke<DocumentCollection[]>("get_collection_memberships"),
+        ]);
         if (cancelled) return;
         setDocuments(docs);
         setLibraryFolder(libraryFolder);
+        setCollections(collections);
+        setDocumentCollections(documentCollections);
       } catch {
         if (!cancelled) addToast({ type: "error", message: "Failed to load library." });
       }
     })();
     return () => { cancelled = true; };
-  }, [setCurrentDocument, setDocuments, setLibraryFolder, addToast]);
+  }, [setCurrentDocument, setDocuments, setCollections, setDocumentCollections, setLibraryFolder, addToast]);
 
   // Listen for native menu File > Open PDF (Cmd+O)
   useEffect(() => {

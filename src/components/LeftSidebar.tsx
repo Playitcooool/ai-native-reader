@@ -3,13 +3,14 @@ import { invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 import { writeTextFile } from "@tauri-apps/plugin-fs";
 import SettingsPanel from "./SettingsPanel";
-import { documentDisplayTitle, useDocumentStore } from "../stores/documentStore";
+import { documentDisplayTitle, filterDocumentsByCollection, useDocumentStore } from "../stores/documentStore";
 import { useNotesStore } from "../stores/notesStore";
 import type { Annotation } from "../stores/notesStore";
 import type { Document } from "../stores/documentStore";
 import TocSidebar from "../features/toc/TocSidebar";
 import { chapterToPercent } from "../features/epub/epubProgress";
 import { useToast } from "./Toast";
+import { CollectionAssignmentMenu, CollectionFilterChips } from "./CollectionControls";
 
 type Tab = "toc" | "notes" | "recent" | "settings";
 const NOTE_LIKE_ANNOTATION_TYPES = new Set(["note", "ai_note"]);
@@ -180,6 +181,8 @@ export default function LeftSidebar() {
   useEffect(() => { localStorage.setItem(TAB_STORAGE_KEY, activeTab); }, [activeTab]);
   const {
     documents,
+    documentCollections,
+    selectedCollectionId,
     currentDocument,
     totalPages,
     tocNodes,
@@ -195,6 +198,7 @@ export default function LeftSidebar() {
   const { annotations, isLoading: notesLoading, loadAnnotations, deleteAnnotation } = useNotesStore();
   const { addToast } = useToast();
   const notes = annotations.filter((ann) => NOTE_LIKE_ANNOTATION_TYPES.has(ann.type));
+  const visibleDocuments = filterDocumentsByCollection(documents, selectedCollectionId, documentCollections);
 
   useEffect(() => {
     loadDocuments().catch(() =>
@@ -223,7 +227,7 @@ export default function LeftSidebar() {
   }, [currentDocument, loadAnnotations, addToast]);
 
   const nonFolderDocs = libraryFolder
-    ? documents.filter((d) => !d.file_path.startsWith(libraryFolder))
+    ? visibleDocuments.filter((d) => !d.file_path.startsWith(libraryFolder))
     : [];
 
   const handleOpenDocument = (doc: typeof documents[0]) => {
@@ -267,7 +271,7 @@ export default function LeftSidebar() {
 
   const handleContextMenu = (e: React.MouseEvent, doc: Document) => {
     e.preventDefault();
-    const menuW = 150, menuH = 36;
+    const menuW = 220, menuH = 300;
     const x = Math.min(e.clientX, window.innerWidth - menuW);
     const y = Math.min(e.clientY, window.innerHeight - menuH);
     setCtxMenu({ x, y: Math.max(10, y), doc });
@@ -357,6 +361,7 @@ export default function LeftSidebar() {
                       }} title="Disconnect folder">✕</button>
                     </div>
                   )}
+                  <CollectionFilterChips documents={documents} />
                   {docsLoading ? (
               <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "4px 0" }}>
                 <SkeletonBlock lines={[70, 40]} />
@@ -372,10 +377,14 @@ export default function LeftSidebar() {
                   Press <kbd style={{ padding: "1px 4px", background: "var(--bg-tertiary)", borderRadius: 2, fontFamily: "inherit", border: "1px solid var(--border-color)" }}>Cmd+O</kbd> to open a PDF.
                 </p>
               </>
+            ) : visibleDocuments.length === 0 ? (
+              <p style={{ color: "var(--text-muted)", fontSize: 14 }}>
+                No books in this collection.
+              </p>
             ) : libraryFolder ? (
               <div>
                 <FileTreeView
-                  nodes={buildFileTree(documents, libraryFolder)}
+                  nodes={buildFileTree(visibleDocuments, libraryFolder)}
                   currentId={currentDocument?.id ?? null}
                   onSelect={handleOpenDocument}
                   onContextMenu={handleContextMenu}
@@ -393,7 +402,7 @@ export default function LeftSidebar() {
               </div>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                {documents.map((doc) => (
+                {visibleDocuments.map((doc) => (
                   <DocItem key={doc.id} doc={doc} currentId={currentDocument?.id ?? null} onSelect={handleOpenDocument} onContextMenu={handleContextMenu} />
                 ))}
               </div>
@@ -487,6 +496,7 @@ export default function LeftSidebar() {
           style={{ left: ctxMenu.x, top: ctxMenu.y }}
           role="menu"
         >
+          <CollectionAssignmentMenu doc={ctxMenu.doc} onDone={() => setCtxMenu(null)} />
           <button className="ctx-menu-item" role="menuitem" onClick={() => handleDelete(ctxMenu.doc)}>
             Delete
           </button>

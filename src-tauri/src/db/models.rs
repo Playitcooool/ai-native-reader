@@ -20,6 +20,20 @@ pub struct Document {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Collection {
+    pub id: String,
+    pub name: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DocumentCollection {
+    pub document_id: String,
+    pub collection_id: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ProviderSettings {
     pub id: String,
     pub provider_type: String,

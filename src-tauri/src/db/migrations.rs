@@ -151,6 +151,21 @@ fn run_migrations(conn: &Connection) -> Result<()> {
             FOREIGN KEY(document_id) REFERENCES documents(id) ON DELETE CASCADE
         );
 
+        CREATE TABLE IF NOT EXISTS collections (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS document_collections (
+            document_id TEXT NOT NULL,
+            collection_id TEXT NOT NULL,
+            PRIMARY KEY(document_id, collection_id),
+            FOREIGN KEY(document_id) REFERENCES documents(id) ON DELETE CASCADE,
+            FOREIGN KEY(collection_id) REFERENCES collections(id) ON DELETE CASCADE
+        );
+
         CREATE TABLE IF NOT EXISTS library_folder (
             id INTEGER PRIMARY KEY CHECK(id = 1),
             folder_path TEXT NOT NULL
@@ -182,6 +197,7 @@ fn run_migrations(conn: &Connection) -> Result<()> {
         CREATE INDEX IF NOT EXISTS idx_ai_sessions_doc ON ai_sessions(document_id);
         CREATE INDEX IF NOT EXISTS idx_ai_sessions_reuse ON ai_sessions(document_id, scope_type, scope_json);
         CREATE INDEX IF NOT EXISTS idx_ai_messages_session ON ai_messages(session_id);
+        CREATE INDEX IF NOT EXISTS idx_document_collections_collection ON document_collections(collection_id);
         CREATE INDEX IF NOT EXISTS idx_provider_default ON provider_settings(is_default);
         CREATE INDEX IF NOT EXISTS idx_toc_nodes_doc ON toc_nodes(document_id);
         CREATE INDEX IF NOT EXISTS idx_toc_doc_page_end_level ON toc_nodes(document_id, start_page, end_page, level);
@@ -224,6 +240,7 @@ mod tests {
             "idx_provider_default",
             "idx_provider_translation",
             "idx_ai_sessions_reuse",
+            "idx_document_collections_collection",
         ] {
             let exists: i64 = conn
                 .query_row(
@@ -234,5 +251,56 @@ mod tests {
                 .unwrap();
             assert_eq!(exists, 1, "{name}");
         }
+    }
+
+    #[test]
+    fn creates_collections_with_case_insensitive_unique_names() {
+        let conn = Connection::open_in_memory().unwrap();
+        run_migrations(&conn).unwrap();
+
+        conn.execute(
+            "INSERT INTO collections (id, name, created_at, updated_at) VALUES ('c1', 'Theory', 'now', 'now')",
+            [],
+        )
+        .unwrap();
+        let duplicate = conn.execute(
+            "INSERT INTO collections (id, name, created_at, updated_at) VALUES ('c2', 'theory', 'now', 'now')",
+            [],
+        );
+
+        assert!(duplicate.is_err());
+    }
+
+    #[test]
+    fn document_collection_rows_cascade_when_document_is_deleted() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute("PRAGMA foreign_keys=ON", []).unwrap();
+        run_migrations(&conn).unwrap();
+
+        conn.execute(
+            "INSERT INTO documents (id, title, original_filename, file_path, created_at, updated_at)
+             VALUES ('d1', 'Book', 'book.pdf', '/tmp/book.pdf', 'now', 'now')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO collections (id, name, created_at, updated_at) VALUES ('c1', 'Theory', 'now', 'now')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO document_collections (document_id, collection_id) VALUES ('d1', 'c1')",
+            [],
+        )
+        .unwrap();
+
+        conn.execute("DELETE FROM documents WHERE id = 'd1'", [])
+            .unwrap();
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM document_collections", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(count, 0);
     }
 }

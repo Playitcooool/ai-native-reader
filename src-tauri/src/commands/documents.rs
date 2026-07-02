@@ -1,5 +1,5 @@
 use super::settings::DbState;
-use crate::db::models::Document;
+use crate::db::models::{Collection, Document, DocumentCollection};
 use chrono::Utc;
 use sha2::{Digest, Sha256};
 use std::fs;
@@ -296,6 +296,112 @@ pub fn delete_document(db: State<DbState>, document_id: String) -> Result<(), St
     conn.execute(
         "DELETE FROM documents WHERE id = ?1",
         rusqlite::params![document_id],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn get_collections(db: State<DbState>) -> Result<Vec<Collection>, String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, name, created_at, updated_at FROM collections ORDER BY name COLLATE NOCASE",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let collections = stmt
+        .query_map([], |row| {
+            Ok(Collection {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                created_at: row.get(2)?,
+                updated_at: row.get(3)?,
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    Ok(collections)
+}
+
+#[tauri::command]
+pub fn create_collection(db: State<DbState>, name: String) -> Result<Collection, String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("Collection name cannot be empty.".into());
+    }
+
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    let id = Uuid::new_v4().to_string();
+    let now = Utc::now().to_rfc3339();
+    conn.execute(
+        "INSERT INTO collections (id, name, created_at, updated_at) VALUES (?1, ?2, ?3, ?4)",
+        rusqlite::params![id, name, now, now],
+    )
+    .map_err(|e| {
+        if matches!(e, rusqlite::Error::SqliteFailure(ref err, _) if err.code == rusqlite::ErrorCode::ConstraintViolation)
+        {
+            "Collection name already exists.".to_string()
+        } else {
+            e.to_string()
+        }
+    })?;
+
+    Ok(Collection {
+        id,
+        name: name.to_string(),
+        created_at: now.clone(),
+        updated_at: now,
+    })
+}
+
+#[tauri::command]
+pub fn get_collection_memberships(db: State<DbState>) -> Result<Vec<DocumentCollection>, String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    let mut stmt = conn
+        .prepare("SELECT document_id, collection_id FROM document_collections")
+        .map_err(|e| e.to_string())?;
+    let memberships = stmt
+        .query_map([], |row| {
+            Ok(DocumentCollection {
+                document_id: row.get(0)?,
+                collection_id: row.get(1)?,
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    Ok(memberships)
+}
+
+#[tauri::command]
+pub fn add_document_to_collection(
+    db: State<DbState>,
+    document_id: String,
+    collection_id: String,
+) -> Result<(), String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    conn.execute(
+        "INSERT OR IGNORE INTO document_collections (document_id, collection_id) VALUES (?1, ?2)",
+        rusqlite::params![document_id, collection_id],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn remove_document_from_collection(
+    db: State<DbState>,
+    document_id: String,
+    collection_id: String,
+) -> Result<(), String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    conn.execute(
+        "DELETE FROM document_collections WHERE document_id = ?1 AND collection_id = ?2",
+        rusqlite::params![document_id, collection_id],
     )
     .map_err(|e| e.to_string())?;
     Ok(())
