@@ -1,4 +1,4 @@
-export type InkSpace = "pdf-page" | "epub-section";
+export type InkSpace = "pdf-page" | "epub-section" | "epub-rendition";
 
 export interface InkPoint {
   x: number;
@@ -12,6 +12,11 @@ export interface InkAnchor {
   width: number;
   sectionIndex?: number;
   href?: string;
+  cfi?: string;
+  visibleCfi?: string;
+  spineIndex?: number;
+  viewportWidth?: number;
+  viewportHeight?: number;
 }
 
 export interface InkToolState {
@@ -34,7 +39,7 @@ export function parseInkAnchor(value: string | null): InkAnchor | null {
     const parsed = JSON.parse(value) as Partial<InkAnchor>;
     if (
       parsed.version !== 1 ||
-      (parsed.space !== "pdf-page" && parsed.space !== "epub-section") ||
+      (parsed.space !== "pdf-page" && parsed.space !== "epub-section" && parsed.space !== "epub-rendition") ||
       !Array.isArray(parsed.points) ||
       typeof parsed.width !== "number"
     ) {
@@ -51,6 +56,11 @@ export function parseInkAnchor(value: string | null): InkAnchor | null {
       width: Math.max(0.5, parsed.width),
       sectionIndex: typeof parsed.sectionIndex === "number" ? parsed.sectionIndex : undefined,
       href: typeof parsed.href === "string" ? parsed.href : undefined,
+      cfi: typeof parsed.cfi === "string" ? parsed.cfi : undefined,
+      visibleCfi: typeof parsed.visibleCfi === "string" ? parsed.visibleCfi : undefined,
+      spineIndex: typeof parsed.spineIndex === "number" ? parsed.spineIndex : undefined,
+      viewportWidth: typeof parsed.viewportWidth === "number" ? parsed.viewportWidth : undefined,
+      viewportHeight: typeof parsed.viewportHeight === "number" ? parsed.viewportHeight : undefined,
     };
   } catch {
     return null;

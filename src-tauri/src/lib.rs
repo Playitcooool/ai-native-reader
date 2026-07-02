@@ -166,6 +166,7 @@ pub fn run() {
             commands::library::clear_library_folder,
             commands::stats::record_reading_heartbeat,
             commands::stats::get_reading_stats,
+            commands::epub::extract_epub_content,
             commands::epub::get_document_cover,
             commands::epub::get_cached_cover,
             commands::epub::cache_cover,

@@ -7,7 +7,7 @@ interface SelectionMenuProps {
   selectedText: string;
   pageNumber: number;
   documentId: string;
-  anchor?: { pageNumber: number; selectedText: string; prefix?: string; suffix?: string };
+  anchor?: unknown;
   position: { x: number; y: number } | null;
   onClose: () => void;
   onExplain: () => void;

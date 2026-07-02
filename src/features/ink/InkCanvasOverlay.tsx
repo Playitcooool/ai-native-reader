@@ -25,6 +25,9 @@ interface InkCanvasOverlayProps {
   renderScale?: number;
   sectionIndex?: number;
   href?: string;
+  cfi?: string;
+  visibleCfi?: string;
+  spineIndex?: number;
   onChanged?: () => void;
 }
 
@@ -44,6 +47,9 @@ export default function InkCanvasOverlay({
   renderScale = 1,
   sectionIndex,
   href,
+  cfi,
+  visibleCfi,
+  spineIndex,
   onChanged,
 }: InkCanvasOverlayProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -129,6 +135,11 @@ export default function InkCanvasOverlay({
       width: Math.max(0.5, toolState.penWidth / renderScale),
       sectionIndex,
       href,
+      cfi,
+      visibleCfi,
+      spineIndex,
+      viewportWidth: width,
+      viewportHeight: height,
     };
     const annotation = await invoke<Annotation>("create_annotation", {
       input: {

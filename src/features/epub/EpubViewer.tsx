@@ -1,13 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import ePub, { type Book, type Contents, type Rendition } from "epubjs";
 import { invoke } from "@tauri-apps/api/core";
 import { useDocumentStore } from "../../stores/documentStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useNotesStore } from "../../stores/notesStore";
+import { useToast } from "../../components/Toast";
 import { Icon } from "../../components/Icons";
+import SelectionMenu from "../pdf/SelectionMenu";
 import InkCanvasOverlay from "../ink/InkCanvasOverlay";
 import InkToolbarControls from "../ink/InkToolbarControls";
-import type { InkToolState } from "../ink/inkGeometry";
-import { chapterToPercent, percentToChapter } from "./epubProgress";
+import { parseInkAnchor, type InkToolState } from "../ink/inkGeometry";
+import { draftFromSelection } from "../ai/aiPanelHelpers";
+import { percentToChapter } from "./epubProgress";
+import { epubCfiKey, parseEpubCfiAnchor, snapshotFromLocation, type EpubCfiAnchor, type EpubLocationSnapshot } from "./epubAnchors";
 
 interface EpubViewerProps {
   documentId: string;
@@ -16,25 +21,29 @@ interface EpubViewerProps {
   onOpenAi?: (draft?: string) => void;
 }
 
-interface PageText {
-  page_number: number;
-  text: string | null;
-  text_status: string;
-}
+type RenderedAnnotation = { cfi: string; type: "highlight" | "underline" };
 
 export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOpenAi }: EpubViewerProps) {
   const frameRef = useRef<HTMLDivElement | null>(null);
-  const articleRef = useRef<HTMLElement | null>(null);
+  const bookRef = useRef<Book | null>(null);
+  const renditionRef = useRef<Rendition | null>(null);
+  const renderedAnnotationsRef = useRef<RenderedAnnotation[]>([]);
+  const locationDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { currentDocument, currentPage, setCurrentPage, setTotalPages, loadToc, tocNodes, setActiveTocNodeId } = useDocumentStore();
   const annotations = useNotesStore((s) => s.annotations);
   const loadAnnotations = useNotesStore((s) => s.loadAnnotations);
   const theme = useSettingsStore((s) => s.theme);
   const setTheme = useSettingsStore((s) => s.setTheme);
-  const [chapters, setChapters] = useState<PageText[]>([]);
+  const { addToast } = useToast();
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [fontSize, setFontSize] = useState(() => Math.round((currentDocument?.last_zoom ?? 1) * 100));
-  const [articleSize, setArticleSize] = useState({ width: 0, height: 0 });
+  const [spineCount, setSpineCount] = useState(currentDocument?.page_count || 1);
+  const [location, setLocation] = useState<EpubLocationSnapshot | null>(null);
+  const [frameSize, setFrameSize] = useState({ width: 0, height: 0 });
+  const [selectionText, setSelectionText] = useState("");
+  const [selectionPos, setSelectionPos] = useState<{ x: number; y: number } | null>(null);
+  const [selectionAnchor, setSelectionAnchor] = useState<EpubCfiAnchor | null>(null);
   const [inkRefreshKey, setInkRefreshKey] = useState(0);
   const [inkToolState, setInkToolState] = useState<InkToolState>({
     activeTool: "none",
@@ -42,31 +51,127 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
     penWidth: 4,
   });
 
-  const totalChapters = chapters.length || currentDocument?.page_count || 1;
-  const chapter = Math.max(1, Math.min(totalChapters, currentPage || 1));
-  const currentChapter = chapters[chapter - 1];
-  const progress = chapterToPercent(chapter, totalChapters);
-  const atStart = chapter <= 1;
-  const atEnd = chapter >= totalChapters;
+  const pageNumber = Math.max(1, location?.percent || currentPage || 1);
+  const progress = location?.percent ?? currentDocument?.last_page ?? 0;
+  const atStart = location?.atStart ?? true;
+  const atEnd = location?.atEnd ?? false;
+  const currentSpineIndex = location?.spineIndex ?? 0;
+
   const inkAnnotations = useMemo(
-    () => annotations.filter((a) => a.type === "ink" && a.page_number === chapter),
-    [annotations, chapter, inkRefreshKey],
+    () => annotations.filter((annotation) => {
+      if (annotation.type !== "ink") return false;
+      const anchor = parseInkAnchor(annotation.anchor_json);
+      if (!anchor || anchor.space !== "epub-rendition") return false;
+      if (anchor.visibleCfi && location?.cfi) return anchor.visibleCfi === location.cfi;
+      if (typeof anchor.spineIndex === "number" && typeof location?.spineIndex === "number") return anchor.spineIndex === location.spineIndex;
+      return Boolean(anchor.href && anchor.href === location?.href);
+    }),
+    [annotations, inkRefreshKey, location?.cfi, location?.href, location?.spineIndex],
   );
 
-  const goToChapter = useCallback((next: number) => {
-    const page = Math.max(1, Math.min(totalChapters, next));
-    setCurrentPage(page);
-    invoke("update_last_page", { documentId, pageNumber: chapterToPercent(page, totalChapters) }).catch(() => {});
-    frameRef.current?.scrollTo({ top: 0 });
-  }, [documentId, setCurrentPage, totalChapters]);
+  const clearSelection = useCallback(() => {
+    setSelectionText("");
+    setSelectionPos(null);
+    setSelectionAnchor(null);
+    window.getSelection()?.removeAllRanges();
+    const contentsList = (renditionRef.current?.getContents?.() ?? []) as Contents | Contents[];
+    for (const contents of Array.isArray(contentsList) ? contentsList : [contentsList]) {
+      contents.window.getSelection()?.removeAllRanges();
+    }
+  }, []);
+
+  const persistLocation = useCallback((next: EpubLocationSnapshot) => {
+    localStorage.setItem(epubCfiKey(documentId), next.cfi);
+    setLocation(next);
+    setCurrentPage(Math.max(1, next.percent || 1));
+    if (locationDebounceRef.current) clearTimeout(locationDebounceRef.current);
+    locationDebounceRef.current = setTimeout(() => {
+      invoke("update_last_page", { documentId, pageNumber: next.percent }).catch(() => {});
+    }, 250);
+  }, [documentId, setCurrentPage]);
+
+  const applyTheme = useCallback(() => {
+    const rendition = renditionRef.current;
+    if (!rendition) return;
+    const root = getComputedStyle(document.documentElement);
+    const rules = {
+      body: {
+        color: root.getPropertyValue("--text-primary").trim() || (theme === "dark" ? "#f8fafc" : "#111827"),
+        background: root.getPropertyValue("--reader-bg").trim() || (theme === "dark" ? "#111827" : "#ffffff"),
+      },
+      "a, a:visited": {
+        color: root.getPropertyValue("--accent-color").trim() || "#2563eb",
+      },
+      "::selection": {
+        background: "rgba(37, 99, 235, 0.28)",
+      },
+    };
+    rendition.themes.register("rustybooks", rules);
+    rendition.themes.select("rustybooks");
+    rendition.themes.fontSize(`${fontSize}%`);
+  }, [fontSize, theme]);
+
+  const renderStoredAnnotations = useCallback(() => {
+    const rendition = renditionRef.current;
+    if (!rendition) return;
+    for (const item of renderedAnnotationsRef.current) {
+      rendition.annotations.remove(item.cfi, item.type);
+    }
+    renderedAnnotationsRef.current = [];
+
+    for (const annotation of annotations) {
+      if (annotation.type !== "highlight" && annotation.type !== "note") continue;
+      const anchor = parseEpubCfiAnchor(annotation.anchor_json);
+      if (!anchor) continue;
+      if (annotation.type === "note") {
+        rendition.annotations.underline(anchor.cfiRange, { id: annotation.id }, undefined, "rustybooks-epub-note", {
+          stroke: annotation.color || "#f97316",
+          "stroke-width": "2px",
+          "stroke-opacity": "0.85",
+        });
+        renderedAnnotationsRef.current.push({ cfi: anchor.cfiRange, type: "underline" });
+      } else {
+        rendition.annotations.highlight(anchor.cfiRange, { id: annotation.id }, undefined, "rustybooks-epub-highlight", {
+          fill: annotation.color || "#fde047",
+          "fill-opacity": "0.36",
+          "mix-blend-mode": theme === "dark" ? "screen" : "multiply",
+        });
+        renderedAnnotationsRef.current.push({ cfi: anchor.cfiRange, type: "highlight" });
+      }
+    }
+  }, [annotations, theme]);
+
+  const handleSelected = useCallback((cfiRange: string, contents: Contents) => {
+    const selection = contents.window.getSelection();
+    const text = selection?.toString().trim() ?? "";
+    if (!text || !selection || selection.rangeCount === 0) return;
+    const range = selection.getRangeAt(0);
+    const rect = range.getBoundingClientRect();
+    const frameElement = contents.window.frameElement as HTMLElement | null;
+    const frameRect = frameElement?.getBoundingClientRect();
+    setSelectionText(text);
+    setSelectionAnchor({
+      version: 1,
+      space: "epub-cfi",
+      cfiRange,
+      selectedText: text,
+      href: location?.href,
+      spineIndex: location?.spineIndex,
+    });
+    setSelectionPos(frameRect
+      ? { x: frameRect.left + rect.left + rect.width / 2, y: frameRect.top + rect.top }
+      : { x: rect.left + rect.width / 2, y: rect.top });
+  }, [location?.href, location?.spineIndex]);
 
   const goPrevious = useCallback(() => {
-    if (!atStart) goToChapter(chapter - 1);
-  }, [atStart, chapter, goToChapter]);
+    clearSelection();
+    renditionRef.current?.prev().catch(() => {});
+  }, [clearSelection]);
 
   const goNext = useCallback(() => {
-    if (!atEnd) goToChapter(chapter + 1);
-  }, [atEnd, chapter, goToChapter]);
+    clearSelection();
+    renditionRef.current?.next().catch(() => {});
+  }, [clearSelection]);
 
   useEffect(() => {
     let dead = false;
@@ -74,46 +179,98 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
       setLoading(true);
       setError(null);
       try {
-        const requestedEnd = currentDocument?.page_count || 10_000;
-        let rows = await invoke<PageText[]>("get_pages_text", { documentId, startPage: 1, endPage: requestedEnd });
-        if (currentDocument?.parse_status !== "ready" || rows.length === 0 || rows.some((row) => row.text_status !== "ready")) {
-          const count = await invoke<number>("extract_epub_content", { documentId, filePath: currentDocument?.file_path ?? "" });
-          rows = await invoke<PageText[]>("get_pages_text", { documentId, startPage: 1, endPage: count || requestedEnd });
-        }
-        if (dead) return;
-        const ready = rows.filter((row) => row.text_status === "ready");
-        setChapters(ready);
-        setTotalPages(ready.length);
         loadToc(documentId).catch(() => {});
         loadAnnotations(documentId).catch(() => {});
-        setCurrentPage(percentToChapter(currentDocument?.last_page ?? 0, ready.length || 1));
-      } catch (err) {
-        if (!dead) setError(`Failed to load EPUB: ${err}`);
-      } finally {
+        if (currentDocument?.parse_status !== "ready") {
+          invoke("extract_epub_content", { documentId, filePath: currentDocument?.file_path ?? "" }).catch(() => {});
+        }
+
+        const raw = await invoke<number[] | Uint8Array>("read_document_bytes", { documentId });
+        if (dead) return;
+        const bytes = new Uint8Array(raw);
+        const arrayBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+        const book = ePub(arrayBuffer, { replacements: "blob" });
+        const rendition = book.renderTo(frameRef.current!, {
+          width: "100%",
+          height: "100%",
+          flow: "paginated",
+          spread: "none",
+          allowScriptedContent: false,
+        });
+        bookRef.current = book;
+        renditionRef.current = rendition;
+
+        rendition.on("selected", handleSelected);
+        rendition.on("relocated", (loc: unknown) => {
+          const snapshot = snapshotFromLocation(loc);
+          if (snapshot) persistLocation(snapshot);
+        });
+        rendition.on("rendered", () => {
+          applyTheme();
+          renderStoredAnnotations();
+        });
+
+        await book.ready;
+        let count = 0;
+        book.spine.each(() => { count++; });
+        if (!dead) {
+          setSpineCount(Math.max(1, count));
+          setTotalPages(Math.max(1, count));
+          invoke("update_page_count", { documentId, pageCount: Math.max(1, count) }).catch(() => {});
+        }
+        await book.locations.generate(1600).catch(() => null);
+        applyTheme();
+        const savedCfi = localStorage.getItem(epubCfiKey(documentId));
+        const fallbackSection = percentToChapter(currentDocument?.last_page ?? 0, Math.max(1, count)) - 1;
+        if (savedCfi) {
+          await rendition.display(savedCfi);
+        } else {
+          await rendition.display(Math.max(0, fallbackSection));
+        }
         if (!dead) setLoading(false);
+      } catch (err) {
+        if (!dead) {
+          setError(`Failed to load EPUB: ${err}`);
+          setLoading(false);
+        }
       }
     }
     load();
-    return () => { dead = true; };
-  }, [currentDocument?.file_path, currentDocument?.last_page, currentDocument?.page_count, currentDocument?.parse_status, documentId, loadAnnotations, loadToc, setCurrentPage, setTotalPages]);
+    return () => {
+      dead = true;
+      if (locationDebounceRef.current) clearTimeout(locationDebounceRef.current);
+      renderedAnnotationsRef.current = [];
+      renditionRef.current?.destroy();
+      bookRef.current?.destroy();
+      renditionRef.current = null;
+      bookRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [documentId]);
+
+  useEffect(() => { applyTheme(); }, [applyTheme]);
 
   useEffect(() => {
-    const element = articleRef.current;
+    renderStoredAnnotations();
+  }, [renderStoredAnnotations]);
+
+  useEffect(() => {
+    const element = frameRef.current;
     if (!element) return;
-    const update = () => setArticleSize({ width: element.offsetWidth, height: element.offsetHeight });
+    const update = () => setFrameSize({ width: element.clientWidth, height: element.clientHeight });
     update();
     const observer = new ResizeObserver(update);
     observer.observe(element);
     return () => observer.disconnect();
-  }, [chapter, currentChapter?.text, fontSize]);
+  }, []);
 
   useEffect(() => {
     let best: typeof tocNodes[0] | null = null;
     for (const node of tocNodes) {
-      if (node.start_page <= chapter && (node.end_page === null || chapter <= node.end_page)) best = node;
+      if (node.start_page <= currentSpineIndex + 1 && (node.end_page === null || currentSpineIndex + 1 <= node.end_page)) best = node;
     }
     setActiveTocNodeId(best?.id ?? null);
-  }, [chapter, setActiveTocNodeId, tocNodes]);
+  }, [currentSpineIndex, setActiveTocNodeId, tocNodes]);
 
   useEffect(() => {
     const refresh = () => {
@@ -133,16 +290,24 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
       }
       if (e.metaKey || e.ctrlKey) return;
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-      if (e.key === "Escape") setInkToolState((state) => ({ ...state, activeTool: "none" }));
+      if (e.key === "Escape") {
+        clearSelection();
+        setInkToolState((state) => ({ ...state, activeTool: "none" }));
+      }
       if (e.key === "ArrowLeft" || e.key === "PageUp") { e.preventDefault(); goPrevious(); }
       if (e.key === "ArrowRight" || e.key === "PageDown" || e.key === " ") { e.preventDefault(); goNext(); }
       if (e.key === "+" || e.key === "=") { e.preventDefault(); setFontSize((s) => Math.min(200, s + 10)); }
       if (e.key === "-") { e.preventDefault(); setFontSize((s) => Math.max(50, s - 10)); }
       if (e.key === "0") { e.preventDefault(); setFontSize(100); }
+      if ((e.key === "e" || e.key === "E") && selectionText) {
+        e.preventDefault();
+        onOpenAi?.(draftFromSelection(selectionText));
+        clearSelection();
+      }
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [goNext, goPrevious, theme, setTheme]);
+  }, [clearSelection, goNext, goPrevious, onOpenAi, selectionText, setTheme, theme]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -151,14 +316,23 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
     return () => clearTimeout(timer);
   }, [fontSize, documentId, currentDocument]);
 
+  const handleTranslate = useCallback(async (text: string) => {
+    try {
+      return await invoke<string>("translate_text", { input: { selected_text: text } });
+    } catch {
+      addToast({ type: "error", message: "Translation failed." });
+      return null;
+    }
+  }, [addToast]);
+
   return (
     <div className="pdf-viewer">
       <div className="reader-toolbar">
         <button className="toolbar-text-button" onClick={onBackHome} aria-label="Back to home"><Icon name="home" />Back to home</button>
         <span className="toolbar-divider" />
-        <button className="icon-button" onClick={goPrevious} disabled={atStart || loading} aria-label="Previous chapter"><Icon name="prev" /></button>
-        <span className="page-control"><span>{loading ? "Loading" : `Chapter ${chapter}/${totalChapters} - ${progress}%`}</span></span>
-        <button className="icon-button" onClick={goNext} disabled={atEnd || loading} aria-label="Next chapter"><Icon name="next" /></button>
+        <button className="icon-button" onClick={goPrevious} disabled={atStart || loading} aria-label="Previous page"><Icon name="prev" /></button>
+        <span className="page-control"><span>{loading ? "Loading" : `${progress}% - ${currentSpineIndex + 1}/${spineCount}`}</span></span>
+        <button className="icon-button" onClick={goNext} disabled={atEnd || loading} aria-label="Next page"><Icon name="next" /></button>
         <button className="icon-button" onClick={() => setTheme(theme === "light" ? "dark" : "light")} title="Switch theme (Cmd+Shift+T)" aria-label="Toggle theme">
           <Icon name={theme === "light" ? "moon" : "sun"} />
         </button>
@@ -176,35 +350,48 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
       {error ? (
         <div style={{ padding: 24, textAlign: "center" }}><p style={{ color: "var(--danger-color)" }}>{error}</p></div>
       ) : (
-        <div ref={frameRef} className="epub-reader-frame">
+        <div className="epub-reader-frame">
+          <div ref={frameRef} className="epub-rendition-host" />
           {loading && <div className="epub-loading">Loading EPUB...</div>}
-          {!loading && (
-            <>
-              <article ref={articleRef} className="epub-article" style={{ fontSize: `${fontSize}%` }}>
-                {(currentChapter?.text || "").split(/\n{2,}|\r?\n/).filter(Boolean).map((paragraph, index) => (
-                  <p key={index}>{paragraph}</p>
-                ))}
-              </article>
-              <div className="epub-ink-layer">
-                <div className="epub-ink-page" style={{ width: articleSize.width, height: articleSize.height }}>
-                  <InkCanvasOverlay
-                    documentId={documentId}
-                    pageNumber={chapter}
-                    width={articleSize.width}
-                    height={articleSize.height}
-                    annotations={inkAnnotations}
-                    toolState={inkToolState}
-                    space="epub-section"
-                    sectionIndex={chapter - 1}
-                    onChanged={() => setInkRefreshKey((key) => key + 1)}
-                  />
-                </div>
-              </div>
-              <button className="epub-page-turn epub-page-turn-prev" onClick={goPrevious} disabled={atStart} aria-label="Previous chapter"><Icon name="prev" /></button>
-              <button className="epub-page-turn epub-page-turn-next" onClick={goNext} disabled={atEnd} aria-label="Next chapter"><Icon name="next" /></button>
-            </>
-          )}
+          <div className="epub-ink-layer">
+            <div className="epub-ink-page" style={{ width: frameSize.width, height: frameSize.height }}>
+              <InkCanvasOverlay
+                documentId={documentId}
+                pageNumber={pageNumber}
+                width={frameSize.width}
+                height={frameSize.height}
+                annotations={inkAnnotations}
+                toolState={inkToolState}
+                space="epub-rendition"
+                sectionIndex={currentSpineIndex}
+                spineIndex={currentSpineIndex}
+                href={location?.href}
+                cfi={location?.cfi}
+                visibleCfi={location?.cfi}
+                onChanged={() => setInkRefreshKey((key) => key + 1)}
+              />
+            </div>
+          </div>
+          <button className="epub-page-turn epub-page-turn-prev" onClick={goPrevious} disabled={atStart || loading} aria-label="Previous page"><Icon name="prev" /></button>
+          <button className="epub-page-turn epub-page-turn-next" onClick={goNext} disabled={atEnd || loading} aria-label="Next page"><Icon name="next" /></button>
         </div>
+      )}
+
+      {selectionText && (
+        <SelectionMenu
+          selectedText={selectionText}
+          pageNumber={pageNumber}
+          documentId={documentId}
+          anchor={selectionAnchor ?? undefined}
+          position={selectionPos}
+          onClose={clearSelection}
+          onAsk={(text) => onOpenAi?.(draftFromSelection(text))}
+          onExplain={() => {
+            onOpenAi?.(draftFromSelection(selectionText));
+            clearSelection();
+          }}
+          onTranslate={handleTranslate}
+        />
       )}
     </div>
   );

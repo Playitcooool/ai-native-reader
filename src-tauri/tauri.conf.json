@@ -19,7 +19,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self' asset:; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; worker-src 'self' blob: asset:; img-src 'self' data: blob: asset:; connect-src 'self' asset: https://asset.localhost",
+      "csp": "default-src 'self' asset:; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; worker-src 'self' blob: asset:; img-src 'self' data: blob: asset:; font-src 'self' data: blob: asset:; connect-src 'self' asset: https://asset.localhost; frame-src 'self' blob: asset:; child-src 'self' blob: asset:",
       "assetProtocol": {
         "scope": ["**"]
       }
