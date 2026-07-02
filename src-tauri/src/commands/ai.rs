@@ -241,19 +241,20 @@ pub async fn compact_session(
     );
 
     // Get provider settings for compaction
-    let (base_url, api_key, model) = {
+    let (provider_type, base_url, api_key, model) = {
         let conn = db.0.lock().map_err(|e| e.to_string())?;
         let mut stmt = conn
             .prepare(
-                "SELECT base_url, api_key, model FROM provider_settings WHERE is_default = 1 LIMIT 1",
+                "SELECT provider_type, base_url, api_key, model FROM provider_settings WHERE is_default = 1 LIMIT 1",
             )
             .map_err(|e| e.to_string())?;
         let mut rows = stmt
             .query_map([], |row| {
                 Ok((
-                    row.get::<_, Option<String>>(0)?,
+                    row.get::<_, String>(0)?,
                     row.get::<_, Option<String>>(1)?,
-                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, String>(3)?,
                 ))
             })
             .map_err(|e| e.to_string())?;
@@ -269,6 +270,7 @@ pub async fn compact_session(
     // Call AI for compaction
     let result = provider::chat_completion(
         &http_client,
+        &provider_type,
         &base_url,
         &api_key,
         &model,
@@ -599,7 +601,7 @@ pub async fn run_ai_workflow(
 
     let context_pack;
     let (section_start, section_end);
-    let (base_url, api_key, model);
+    let (provider_type, base_url, api_key, model);
     {
         let conn = db.0.lock().map_err(|e| e.to_string())?;
         context_pack = context_builder::build_context_pack_for_mode(
@@ -621,15 +623,16 @@ pub async fn run_ai_workflow(
         let provider_row = {
             let mut stmt = conn
                 .prepare(
-                    "SELECT base_url, api_key, model FROM provider_settings WHERE is_default = 1 LIMIT 1",
+                    "SELECT provider_type, base_url, api_key, model FROM provider_settings WHERE is_default = 1 LIMIT 1",
                 )
                 .map_err(|e| e.to_string())?;
             let mut rows = stmt
                 .query_map([], |row| {
                     Ok((
-                        row.get::<_, Option<String>>(0)?,
+                        row.get::<_, String>(0)?,
                         row.get::<_, Option<String>>(1)?,
-                        row.get::<_, String>(2)?,
+                        row.get::<_, Option<String>>(2)?,
+                        row.get::<_, String>(3)?,
                     ))
                 })
                 .map_err(|e| e.to_string())?;
@@ -642,9 +645,10 @@ pub async fn run_ai_workflow(
                 }
             }
         };
-        let (bu, ak, m) = provider_row;
+        let (pt, bu, ak, m) = provider_row;
         let base_url_val = bu.ok_or("Missing base_url")?;
         let api_key_val = ak.ok_or("Missing api_key")?;
+        provider_type = pt;
         base_url = base_url_val;
         api_key = api_key_val;
         model = m;
@@ -813,6 +817,7 @@ pub async fn run_ai_workflow(
     .ok();
     let answer = provider::chat_completion_stream(
         &http_client,
+        &provider_type,
         &base_url,
         &api_key,
         &model,

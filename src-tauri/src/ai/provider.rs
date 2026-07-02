@@ -19,6 +19,31 @@ struct ChatRequest {
     stream: Option<bool>,
 }
 
+#[derive(Debug, Serialize)]
+struct AnthropicRequest {
+    model: String,
+    messages: Vec<ChatMessage>,
+    system: Option<String>,
+    temperature: Option<f64>,
+    max_tokens: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stream: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AnthropicResponse {
+    content: Vec<AnthropicContent>,
+    #[allow(dead_code)]
+    model: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AnthropicContent {
+    #[serde(rename = "type")]
+    kind: String,
+    text: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct ChatResponse {
     pub choices: Vec<Choice>,
@@ -53,6 +78,7 @@ pub struct TestResult {
 /// Call the OpenAI-compatible /chat/completions endpoint.
 pub async fn chat_completion(
     client: &reqwest::Client,
+    provider_type: &str,
     base_url: &str,
     api_key: &str,
     model: &str,
@@ -60,6 +86,19 @@ pub async fn chat_completion(
     temperature: Option<f64>,
     max_tokens: Option<u32>,
 ) -> Result<ChatResponse, String> {
+    if provider_type == "anthropic" {
+        return anthropic_chat_completion(
+            client,
+            base_url,
+            api_key,
+            model,
+            messages,
+            temperature,
+            max_tokens,
+        )
+        .await;
+    }
+
     let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
 
     let body = ChatRequest {
@@ -129,6 +168,7 @@ struct SseDelta {
 /// Returns the accumulated full text on success.
 pub async fn chat_completion_stream(
     client: &reqwest::Client,
+    provider_type: &str,
     base_url: &str,
     api_key: &str,
     model: &str,
@@ -138,6 +178,21 @@ pub async fn chat_completion_stream(
     on_token: impl Fn(&str),
     is_cancelled: impl Fn() -> bool,
 ) -> Result<String, String> {
+    if provider_type == "anthropic" {
+        return anthropic_chat_completion_stream(
+            client,
+            base_url,
+            api_key,
+            model,
+            messages,
+            temperature,
+            max_tokens,
+            on_token,
+            is_cancelled,
+        )
+        .await;
+    }
+
     let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
 
     let body = ChatRequest {
@@ -237,6 +292,7 @@ pub async fn chat_completion_stream(
 /// Test an AI provider endpoint.
 pub async fn test_provider(
     client: &reqwest::Client,
+    provider_type: &str,
     base_url: &str,
     api_key: &str,
     model: &str,
@@ -256,6 +312,7 @@ pub async fn test_provider(
 
     match chat_completion(
         client,
+        provider_type,
         base_url,
         api_key,
         model,
@@ -285,5 +342,216 @@ pub async fn test_provider(
                 error_message: parts.get(1).map(|s| s.to_string()),
             }
         }
+    }
+}
+
+fn split_anthropic_messages(messages: Vec<ChatMessage>) -> (Option<String>, Vec<ChatMessage>) {
+    let mut system = Vec::new();
+    let mut chat = Vec::new();
+    for message in messages {
+        if message.role == "system" {
+            system.push(message.content);
+        } else {
+            chat.push(ChatMessage {
+                role: if message.role == "assistant" {
+                    "assistant"
+                } else {
+                    "user"
+                }
+                .to_string(),
+                content: message.content,
+            });
+        }
+    }
+    (
+        if system.is_empty() {
+            None
+        } else {
+            Some(system.join("\n\n"))
+        },
+        chat,
+    )
+}
+
+async fn anthropic_chat_completion(
+    client: &reqwest::Client,
+    base_url: &str,
+    api_key: &str,
+    model: &str,
+    messages: Vec<ChatMessage>,
+    temperature: Option<f64>,
+    max_tokens: Option<u32>,
+) -> Result<ChatResponse, String> {
+    let url = format!("{}/messages", base_url.trim_end_matches('/'));
+    let (system, messages) = split_anthropic_messages(messages);
+    let body = AnthropicRequest {
+        model: model.to_string(),
+        messages,
+        system,
+        temperature,
+        max_tokens: max_tokens.unwrap_or(1024),
+        stream: None,
+    };
+
+    let response = client
+        .post(&url)
+        .header("x-api-key", api_key)
+        .header("anthropic-version", "2023-06-01")
+        .header("Content-Type", "application/json")
+        .header(ACCEPT_ENCODING, "identity")
+        .json(&body)
+        .timeout(std::time::Duration::from_secs(60))
+        .send()
+        .await
+        .map_err(provider_request_error)?;
+
+    if !response.status().is_success() {
+        let status = response.status().as_u16();
+        let error_body = response.text().await.unwrap_or_default();
+        return Err(format!("provider_error: HTTP {} - {}", status, error_body));
+    }
+
+    let resp: AnthropicResponse = response
+        .json()
+        .await
+        .map_err(|e| format!("parse_error: {}", e))?;
+    let content = resp
+        .content
+        .into_iter()
+        .filter(|item| item.kind == "text")
+        .filter_map(|item| item.text)
+        .collect::<Vec<_>>()
+        .join("");
+
+    Ok(ChatResponse {
+        choices: vec![Choice {
+            message: ChatMessage {
+                role: "assistant".to_string(),
+                content,
+            },
+            finish_reason: None,
+        }],
+        usage: None,
+    })
+}
+
+#[derive(Debug, Deserialize)]
+struct AnthropicSseChunk {
+    #[serde(rename = "type")]
+    kind: String,
+    delta: Option<AnthropicSseDelta>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AnthropicSseDelta {
+    #[serde(rename = "type")]
+    kind: Option<String>,
+    text: Option<String>,
+}
+
+async fn anthropic_chat_completion_stream(
+    client: &reqwest::Client,
+    base_url: &str,
+    api_key: &str,
+    model: &str,
+    messages: Vec<ChatMessage>,
+    temperature: Option<f64>,
+    max_tokens: Option<u32>,
+    on_token: impl Fn(&str),
+    is_cancelled: impl Fn() -> bool,
+) -> Result<String, String> {
+    let url = format!("{}/messages", base_url.trim_end_matches('/'));
+    let (system, messages) = split_anthropic_messages(messages);
+    let body = AnthropicRequest {
+        model: model.to_string(),
+        messages,
+        system,
+        temperature,
+        max_tokens: max_tokens.unwrap_or(1024),
+        stream: Some(true),
+    };
+
+    let response = client
+        .post(&url)
+        .header("x-api-key", api_key)
+        .header("anthropic-version", "2023-06-01")
+        .header("Content-Type", "application/json")
+        .header("Accept", "text/event-stream")
+        .header(ACCEPT_ENCODING, "identity")
+        .json(&body)
+        .timeout(std::time::Duration::from_secs(120))
+        .send()
+        .await
+        .map_err(provider_request_error)?;
+
+    if !response.status().is_success() {
+        let status = response.status().as_u16();
+        let error_body = response.text().await.unwrap_or_default();
+        return Err(format!("provider_error: HTTP {} - {}", status, error_body));
+    }
+
+    let mut stream = response.bytes_stream();
+    let mut buf = String::new();
+    let mut full_text = String::new();
+
+    while let Some(chunk_result) = stream.next().await {
+        if is_cancelled() {
+            return Err("cancelled".to_string());
+        }
+        let chunk = match chunk_result {
+            Ok(chunk) => chunk,
+            Err(_) if !full_text.is_empty() => break,
+            Err(e) => return Err(format!("stream_error: {}", e)),
+        };
+        buf.push_str(&String::from_utf8_lossy(&chunk));
+
+        loop {
+            let (delim, delim_len) = if let Some(pos) = buf.find("\r\n\r\n") {
+                (pos, 4)
+            } else if let Some(pos) = buf.find("\n\n") {
+                (pos, 2)
+            } else {
+                break;
+            };
+
+            let event = buf[..delim].to_string();
+            buf = buf[delim + delim_len..].to_string();
+            let data = event
+                .lines()
+                .filter_map(|line| line.strip_prefix("data:").map(str::trim_start))
+                .collect::<Vec<_>>()
+                .join("\n");
+
+            if data.is_empty() {
+                continue;
+            }
+            if let Ok(chunk) = serde_json::from_str::<AnthropicSseChunk>(&data) {
+                if chunk.kind == "message_stop" {
+                    return Ok(full_text);
+                }
+                let text = chunk
+                    .delta
+                    .filter(|delta| delta.kind.as_deref() == Some("text_delta"))
+                    .and_then(|delta| delta.text);
+                if let Some(text) = text {
+                    if !text.is_empty() {
+                        on_token(&text);
+                        full_text.push_str(&text);
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(full_text)
+}
+
+fn provider_request_error(e: reqwest::Error) -> String {
+    if e.is_timeout() {
+        "timeout".to_string()
+    } else if e.is_connect() {
+        "network_error".to_string()
+    } else {
+        format!("unknown: {}", e)
     }
 }

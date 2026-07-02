@@ -135,17 +135,18 @@ pub async fn test_provider(
     db: State<'_, DbState>,
     provider_id: String,
 ) -> Result<TestProviderResult, String> {
-    let (base_url, api_key, model) = {
+    let (provider_type, base_url, api_key, model) = {
         let conn = db.0.lock().map_err(|e| e.to_string())?;
         let mut stmt = conn
-            .prepare("SELECT base_url, api_key, model FROM provider_settings WHERE id = ?1")
+            .prepare("SELECT provider_type, base_url, api_key, model FROM provider_settings WHERE id = ?1")
             .map_err(|e| e.to_string())?;
         let mut rows = stmt
             .query_map(rusqlite::params![provider_id], |row| {
                 Ok((
-                    row.get::<_, Option<String>>(0)?,
+                    row.get::<_, String>(0)?,
                     row.get::<_, Option<String>>(1)?,
-                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, String>(3)?,
                 ))
             })
             .map_err(|e| e.to_string())?;
@@ -157,8 +158,14 @@ pub async fn test_provider(
     let base_url = base_url.ok_or("Provider is missing a base URL. Check Settings.")?;
     let api_key = api_key.ok_or("Provider is missing an API key. Check Settings.")?;
 
-    let result =
-        crate::ai::provider::test_provider(&http_client, &base_url, &api_key, &model).await;
+    let result = crate::ai::provider::test_provider(
+        &http_client,
+        &provider_type,
+        &base_url,
+        &api_key,
+        &model,
+    )
+    .await;
     Ok(TestProviderResult {
         ok: result.ok,
         provider_id,

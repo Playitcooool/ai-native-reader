@@ -2,6 +2,33 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useSettingsStore, type ProviderSettingsInput } from "../stores/settingsStore";
 
+const providerDefaults: Record<string, { baseUrl: string; model: string; apiKeyPlaceholder: string; modelPlaceholder: string }> = {
+  openai_compatible: {
+    baseUrl: "https://api.openai.com/v1",
+    model: "gpt-4o-mini",
+    apiKeyPlaceholder: "sk-...",
+    modelPlaceholder: "gpt-4o-mini",
+  },
+  anthropic: {
+    baseUrl: "https://api.anthropic.com/v1",
+    model: "claude-haiku-4-5",
+    apiKeyPlaceholder: "sk-ant-...",
+    modelPlaceholder: "claude-haiku-4-5",
+  },
+  lm_studio: {
+    baseUrl: "http://localhost:1234/v1",
+    model: "local-model",
+    apiKeyPlaceholder: "optional",
+    modelPlaceholder: "local-model",
+  },
+  ollama: {
+    baseUrl: "http://localhost:11434/v1",
+    model: "llama3.1",
+    apiKeyPlaceholder: "optional",
+    modelPlaceholder: "llama3.1",
+  },
+};
+
 export default function SettingsPanel() {
   const { settings, addSetting, updateSetting } = useSettingsStore();
   const [baseUrl, setBaseUrl] = useState("");
@@ -97,6 +124,17 @@ export default function SettingsPanel() {
     setStatus(null);
   };
 
+  const handleProviderTypeChange = (nextType: string) => {
+    const previous = providerDefaults[providerType];
+    const next = providerDefaults[nextType];
+    setProviderType(nextType);
+    if (!next) return;
+    if (!baseUrl || baseUrl === previous?.baseUrl) setBaseUrl(next.baseUrl);
+    if (!model || model === previous?.model) setModel(next.model);
+  };
+
+  const defaults = providerDefaults[providerType] ?? providerDefaults.openai_compatible;
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       <h3 style={{ fontSize: 14, fontWeight: 600 }}>AI Provider</h3>
@@ -104,24 +142,25 @@ export default function SettingsPanel() {
       <label htmlFor="provider-type" style={{ fontSize: 12, color: "var(--text-secondary)" }}>Provider Type</label>
       <select id="provider-type"
         value={providerType}
-        onChange={(e) => setProviderType(e.target.value)}
+        onChange={(e) => handleProviderTypeChange(e.target.value)}
         style={{ padding: "6px 8px", border: "1px solid var(--border-color)", borderRadius: 4, fontSize: 13, background: "var(--bg-primary)" }}
       >
         <option value="openai_compatible">OpenAI Compatible</option>
+        <option value="anthropic">Anthropic</option>
         <option value="lm_studio">LM Studio</option>
         <option value="ollama">Ollama</option>
       </select>
 
       <label htmlFor="base-url" style={{ fontSize: 12, color: "var(--text-secondary)" }}>Base URL</label>
-      <input id="base-url" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://api.openai.com/v1"
+      <input id="base-url" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder={defaults.baseUrl}
         style={{ padding: "6px 8px", border: "1px solid var(--border-color)", borderRadius: 4, fontSize: 13, background: "var(--bg-primary)", color: "var(--text-primary)" }} />
 
       <label htmlFor="api-key" style={{ fontSize: 12, color: "var(--text-secondary)" }}>API Key</label>
-      <input id="api-key" type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="sk-..."
+      <input id="api-key" type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={defaults.apiKeyPlaceholder}
         style={{ padding: "6px 8px", border: "1px solid var(--border-color)", borderRadius: 4, fontSize: 13, background: "var(--bg-primary)", color: "var(--text-primary)" }} />
 
       <label htmlFor="model" style={{ fontSize: 12, color: "var(--text-secondary)" }}>Model</label>
-      <input id="model" value={model} onChange={(e) => setModel(e.target.value)} placeholder="gpt-4o-mini"
+      <input id="model" value={model} onChange={(e) => setModel(e.target.value)} placeholder={defaults.modelPlaceholder}
         style={{ padding: "6px 8px", border: "1px solid var(--border-color)", borderRadius: 4, fontSize: 13, background: "var(--bg-primary)", color: "var(--text-primary)" }} />
 
       <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 6, color: "var(--text-secondary)", cursor: "pointer" }}>

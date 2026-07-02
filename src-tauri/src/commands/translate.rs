@@ -18,20 +18,21 @@ pub async fn translate_text(
     input: TranslateTextInput,
 ) -> Result<String, String> {
     // Read provider: translation provider first, fallback to default
-    let (base_url, api_key, model) = {
+    let (provider_type, base_url, api_key, model) = {
         let conn = db.0.lock().map_err(|e| e.to_string())?;
 
         let mut stmt = conn
             .prepare(
-                "SELECT base_url, api_key, model FROM provider_settings WHERE is_translation = 1 LIMIT 1",
+                "SELECT provider_type, base_url, api_key, model FROM provider_settings WHERE is_translation = 1 LIMIT 1",
             )
             .map_err(|e| e.to_string())?;
         let mut rows = stmt
             .query_map([], |row| {
                 Ok((
-                    row.get::<_, Option<String>>(0)?,
+                    row.get::<_, String>(0)?,
                     row.get::<_, Option<String>>(1)?,
-                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, String>(3)?,
                 ))
             })
             .map_err(|e| e.to_string())?;
@@ -42,15 +43,16 @@ pub async fn translate_text(
                 // Fallback to default provider
                 let mut stmt = conn
                     .prepare(
-                        "SELECT base_url, api_key, model FROM provider_settings WHERE is_default = 1 LIMIT 1",
+                        "SELECT provider_type, base_url, api_key, model FROM provider_settings WHERE is_default = 1 LIMIT 1",
                     )
                     .map_err(|e| e.to_string())?;
                 let mut rows = stmt
                     .query_map([], |row| {
                         Ok((
-                            row.get::<_, Option<String>>(0)?,
+                            row.get::<_, String>(0)?,
                             row.get::<_, Option<String>>(1)?,
-                            row.get::<_, String>(2)?,
+                            row.get::<_, Option<String>>(2)?,
+                            row.get::<_, String>(3)?,
                         ))
                     })
                     .map_err(|e| e.to_string())?;
@@ -81,6 +83,7 @@ pub async fn translate_text(
 
     let response = crate::ai::provider::chat_completion(
         &http_client,
+        &provider_type,
         &base_url,
         &api_key,
         &model,
