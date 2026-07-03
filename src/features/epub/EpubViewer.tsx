@@ -35,7 +35,7 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
   const annotations = useNotesStore((s) => s.annotations);
   const loadAnnotations = useNotesStore((s) => s.loadAnnotations);
   const theme = useSettingsStore((s) => s.theme);
-  const setTheme = useSettingsStore((s) => s.setTheme);
+  const toggleTheme = useSettingsStore((s) => s.toggleTheme);
   const { addToast } = useToast();
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -329,7 +329,7 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
     const handleKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === "t" || e.key === "T")) {
         e.preventDefault();
-        setTheme(theme === "light" ? "dark" : "light");
+        toggleTheme();
         return;
       }
       if (e.metaKey || e.ctrlKey) return;
@@ -351,7 +351,7 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [clearSelection, goNext, goPrevious, onOpenAi, selectionText, setTheme, theme]);
+  }, [clearSelection, goNext, goPrevious, onOpenAi, selectionText, toggleTheme]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -377,7 +377,7 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
         <button className="icon-button" onClick={goPrevious} disabled={atStart || loading} aria-label="Previous page"><Icon name="prev" /></button>
         <span className="page-control"><span>{loading ? "Loading" : `${progress}% - ${currentSpineIndex + 1}/${spineCount}`}</span></span>
         <button className="icon-button" onClick={goNext} disabled={atEnd || loading} aria-label="Next page"><Icon name="next" /></button>
-        <button className="icon-button" onClick={() => setTheme(theme === "light" ? "dark" : "light")} title="Switch theme (Cmd+Shift+T)" aria-label="Toggle theme">
+        <button className="icon-button" onClick={toggleTheme} title="Switch theme (Cmd+Shift+T)" aria-label="Toggle theme">
           <Icon name={theme === "light" ? "moon" : "sun"} />
         </button>
         <InkToolbarControls value={inkToolState} onChange={setInkToolState} />

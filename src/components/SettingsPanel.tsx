@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { useSettingsStore, type ProviderSettingsInput } from "../stores/settingsStore";
+import { useSettingsStore, type ProviderSettingsInput, type ThemePreference } from "../stores/settingsStore";
 
 const providerDefaults: Record<string, { baseUrl: string; model: string; apiKeyPlaceholder: string; modelPlaceholder: string }> = {
   openai_compatible: {
@@ -30,7 +30,7 @@ const providerDefaults: Record<string, { baseUrl: string; model: string; apiKeyP
 };
 
 export default function SettingsPanel() {
-  const { settings, addSetting, updateSetting } = useSettingsStore();
+  const { settings, addSetting, updateSetting, themePreference, setThemePreference } = useSettingsStore();
   const [baseUrl, setBaseUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [model, setModel] = useState("");
@@ -134,9 +134,40 @@ export default function SettingsPanel() {
   };
 
   const defaults = providerDefaults[providerType] ?? providerDefaults.openai_compatible;
+  const themeOptions: Array<{ value: ThemePreference; label: string }> = [
+    { value: "system", label: "System" },
+    { value: "light", label: "Light" },
+    { value: "dark", label: "Dark" },
+  ];
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <h3 style={{ fontSize: 14, fontWeight: 600 }}>Appearance</h3>
+      <div
+        role="group"
+        aria-label="Theme"
+        style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", border: "1px solid var(--border-color)", borderRadius: 4, overflow: "hidden" }}
+      >
+        {themeOptions.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            onClick={() => setThemePreference(option.value)}
+            aria-pressed={themePreference === option.value}
+            style={{
+              padding: "6px 8px",
+              border: 0,
+              borderLeft: option.value === "system" ? 0 : "1px solid var(--border-color)",
+              background: themePreference === option.value ? "var(--accent-color)" : "var(--bg-primary)",
+              color: themePreference === option.value ? "#fff" : "var(--text-primary)",
+              fontSize: 12,
+            }}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+
       <h3 style={{ fontSize: 14, fontWeight: 600 }}>AI Provider</h3>
 
       <label htmlFor="provider-type" style={{ fontSize: 12, color: "var(--text-secondary)" }}>Provider Type</label>

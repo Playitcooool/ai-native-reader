@@ -63,7 +63,7 @@ export default function PdfViewer({ documentId, onBackHome, onOpenLibrary, onOpe
     currentDocument,
   } = useDocumentStore();
   const theme = useSettingsStore((s) => s.theme);
-  const setTheme = useSettingsStore((s) => s.setTheme);
+  const toggleTheme = useSettingsStore((s) => s.toggleTheme);
   const pdfRef = useRef<PDFDocumentProxy | null>(null);
   const { addToast } = useToast();
   const extractionRef = useRef<PageExtractionQueue | null>(null);
@@ -396,7 +396,7 @@ export default function PdfViewer({ documentId, onBackHome, onOpenLibrary, onOpe
       // Cmd/Ctrl+Shift+T toggles theme
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === "t" || e.key === "T")) {
         e.preventDefault();
-        setTheme(theme === "light" ? "dark" : "light");
+        toggleTheme();
         return;
       }
       // Let system shortcuts (Cmd+C/V/A, etc.) pass through
@@ -426,7 +426,7 @@ export default function PdfViewer({ documentId, onBackHome, onOpenLibrary, onOpe
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [currentPage, zoom, goToPage, handleSetZoom, clearSelection, selectionText, handleExplain, showShortcuts, theme, setTheme]);
+  }, [currentPage, zoom, goToPage, handleSetZoom, clearSelection, selectionText, handleExplain, showShortcuts, toggleTheme]);
 
   // Debounced zoom persistence
   useEffect(() => {
@@ -554,7 +554,7 @@ export default function PdfViewer({ documentId, onBackHome, onOpenLibrary, onOpe
         <button className={`icon-button ${showSearch ? "active" : ""}`} onClick={handleToggleSearch} title="Search (Ctrl+F)" aria-label="Toggle search">
           <Icon name="search" />
         </button>
-        <button className="icon-button" onClick={() => setTheme(theme === "light" ? "dark" : "light")} title="Switch to light/dark mode (Cmd+Shift+T)" aria-label="Toggle theme">
+        <button className="icon-button" onClick={toggleTheme} title="Switch to light/dark mode (Cmd+Shift+T)" aria-label="Toggle theme">
           <Icon name={theme === "light" ? "moon" : "sun"} />
         </button>
         <InkToolbarControls value={inkToolState} onChange={setInkToolState} />
