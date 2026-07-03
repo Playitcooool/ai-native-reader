@@ -29,6 +29,8 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
   const renditionRef = useRef<Rendition | null>(null);
   const renderedAnnotationsRef = useRef<RenderedAnnotation[]>([]);
   const locationDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastWheelTurnRef = useRef(0);
+  const wheelDocumentsRef = useRef<Set<Document>>(new Set());
   const { currentDocument, currentPage, setCurrentPage, setTotalPages, loadToc, tocNodes, setActiveTocNodeId } = useDocumentStore();
   const annotations = useNotesStore((s) => s.annotations);
   const loadAnnotations = useNotesStore((s) => s.loadAnnotations);
@@ -173,6 +175,39 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
     renditionRef.current?.next().catch(() => {});
   }, [clearSelection]);
 
+  const handlePageWheel = useCallback((event: WheelEvent) => {
+    if (event.ctrlKey || event.metaKey) return;
+    if (Math.abs(event.deltaY) < Math.max(35, Math.abs(event.deltaX))) return;
+
+    const now = Date.now();
+    if (now - lastWheelTurnRef.current < 450) {
+      event.preventDefault();
+      return;
+    }
+
+    event.preventDefault();
+    lastWheelTurnRef.current = now;
+    if (event.deltaY > 0) goNext();
+    else goPrevious();
+  }, [goNext, goPrevious]);
+
+  const attachWheelListeners = useCallback(() => {
+    const contentsList = (renditionRef.current?.getContents?.() ?? []) as Contents | Contents[];
+    for (const contents of Array.isArray(contentsList) ? contentsList : [contentsList]) {
+      const doc = contents.document;
+      if (wheelDocumentsRef.current.has(doc)) continue;
+      doc.addEventListener("wheel", handlePageWheel, { passive: false });
+      wheelDocumentsRef.current.add(doc);
+    }
+  }, [handlePageWheel]);
+
+  const removeWheelListeners = useCallback(() => {
+    for (const doc of wheelDocumentsRef.current) {
+      doc.removeEventListener("wheel", handlePageWheel);
+    }
+    wheelDocumentsRef.current.clear();
+  }, [handlePageWheel]);
+
   useEffect(() => {
     let dead = false;
     async function load() {
@@ -208,6 +243,7 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
         rendition.on("rendered", () => {
           applyTheme();
           renderStoredAnnotations();
+          attachWheelListeners();
         });
 
         await book.ready;
@@ -239,6 +275,7 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
     return () => {
       dead = true;
       if (locationDebounceRef.current) clearTimeout(locationDebounceRef.current);
+      removeWheelListeners();
       renderedAnnotationsRef.current = [];
       renditionRef.current?.destroy();
       bookRef.current?.destroy();
@@ -247,6 +284,13 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [documentId]);
+
+  useEffect(() => {
+    const element = frameRef.current;
+    if (!element) return;
+    element.addEventListener("wheel", handlePageWheel, { passive: false });
+    return () => element.removeEventListener("wheel", handlePageWheel);
+  }, [handlePageWheel]);
 
   useEffect(() => { applyTheme(); }, [applyTheme]);
 
