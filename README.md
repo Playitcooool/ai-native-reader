@@ -1,8 +1,8 @@
 # RustyBooks
 
-**AI-native reader that lives in your documents — not in the cloud.**
+**A local-first AI reader for serious PDFs and EPUBs.**
 
-A local-first desktop reader for PDFs and EPUBs. Works offline, keeps everything on your machine, and brings AI to your reading without uploading a single page.
+RustyBooks keeps your library, reading state, notes, OCR, and AI context on your machine. Ask about a page, a selected passage, an explicit page range, or a table-of-contents chapter without uploading the document.
 
 <p>
   <img alt="RustyBooks library" src="docs/screenshots/rustybooks-library.png" width="100%">
@@ -12,15 +12,19 @@ A local-first desktop reader for PDFs and EPUBs. Works offline, keeps everything
   <img alt="RustyBooks reader" src="docs/screenshots/rustybooks-reader.png" width="100%">
 </p>
 
-## What makes it different
+## Highlights
 
-**AI that reads the room.** Select a paragraph and press `E` — the AI sees the selected text, the page, the section heading, and nearby pages before answering. No copy-paste, no context window guessing.
+| Feature | Why it matters |
+|---|---|
+| Local-first library | PDFs, EPUBs, notes, sessions, and reading progress stay on your device. |
+| Context-aware AI | Ask about the current page, selected text, ranges, or TOC chapters. |
+| Clickable citations | AI answers cite pages like `[p.12]`, and links jump back into the reader. |
+| Bring your own model | Use OpenAI, LM Studio, Ollama, or any OpenAI-compatible endpoint. |
+| Built for long documents | Native TOC, page ranges, EPUB progress, OCR fallback, and reading stats. |
 
-**Citations that work.** Answers reference pages (`[p.12]`), and every citation is a clickable link back into the PDF.
+## Release
 
-**Tiny footprint.** SQLite backend, bundled AI calls, no hidden uploads. Everything runs on your hardware, against the model you choose.
-
-**Bring your own model.** OpenAI, LM Studio, Ollama — any OpenAI-compatible endpoint. No vendor lock-in, no per-seat fees.
+Current version: **0.2.0**
 
 ## Quick Start
 
@@ -29,13 +33,13 @@ npm install
 npm run tauri dev
 ```
 
-Build for distribution:
+Build a release bundle:
 
 ```bash
 npm run tauri build
 ```
 
-## Configure AI
+## AI Setup
 
 Open **Settings** in the app and point it at any OpenAI-compatible API:
 
@@ -47,7 +51,7 @@ Open **Settings** in the app and point it at any OpenAI-compatible API:
 
 Local models (LM Studio, Ollama) work with zero configuration beyond the URL.
 
-## Keyboard
+## Keyboard Shortcuts
 
 | Key | Action |
 |---|---|
@@ -57,7 +61,7 @@ Local models (LM Studio, Ollama) work with zero configuration beyond the URL.
 | `0` | Reset zoom |
 | `Esc` | Clear selection |
 
-## Stack
+## Tech Stack
 
 | Layer | What |
 |---|---|

@@ -1,0 +1,87 @@
+name: Bump release version
+
+on:
+  push:
+    branches:
+      - master
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bump-release-version-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    if: github.actor != 'github-actions[bot]' && !contains(github.event.head_commit.message, '[skip version]')
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Bump patch version
+        id: bump
+        run: |
+          node <<'NODE'
+          const fs = require("fs");
+
+          const readJson = (path) => JSON.parse(fs.readFileSync(path, "utf8"));
+          const writeJson = (path, data) => fs.writeFileSync(path, `${JSON.stringify(data, null, 2)}\n`);
+          const bumpPatch = (version, count) => {
+            const parts = version.split(".").map(Number);
+            if (parts.length !== 3 || parts.some((part) => !Number.isInteger(part))) {
+              throw new Error(`Unsupported version: ${version}`);
+            }
+            parts[2] += count;
+            return parts.join(".");
+          };
+
+          const event = readJson(process.env.GITHUB_EVENT_PATH);
+          const commitCount = Math.max(1, (event.commits || []).filter((commit) => {
+            const message = commit.message || "";
+            const author = commit.author?.username || "";
+            return !message.includes("[skip version]") && author !== "github-actions[bot]";
+          }).length);
+
+          const pkg = readJson("package.json");
+          const nextVersion = bumpPatch(pkg.version, commitCount);
+          pkg.version = nextVersion;
+          writeJson("package.json", pkg);
+
+          const lock = readJson("package-lock.json");
+          lock.version = nextVersion;
+          lock.packages[""].version = nextVersion;
+          writeJson("package-lock.json", lock);
+
+          const replace = (path, pattern, value) => {
+            const text = fs.readFileSync(path, "utf8");
+            const next = text.replace(pattern, value);
+            if (next === text) throw new Error(`No version match in ${path}`);
+            fs.writeFileSync(path, next);
+          };
+
+          replace("src-tauri/Cargo.toml", /^version = "\d+\.\d+\.\d+"/m, `version = "${nextVersion}"`);
+          replace("src-tauri/tauri.conf.json", /"version": "\d+\.\d+\.\d+"/, `"version": "${nextVersion}"`);
+          replace(
+            "src-tauri/Cargo.lock",
+            /(\[\[package\]\]\nname = "rustybooks"\nversion = )"\d+\.\d+\.\d+"/,
+            `$1"${nextVersion}"`,
+          );
+          replace("README.md", /Current version: \*\*\d+\.\d+\.\d+\*\*/, `Current version: **${nextVersion}**`);
+
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `version=${nextVersion}\n`);
+          NODE
+
+      - name: Commit version bump
+        run: |
+          if git diff --quiet; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md package.json package-lock.json src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json
+          git commit -m "chore: bump release version to v${{ steps.bump.outputs.version }} [skip version]"
+          git push origin HEAD:${{ github.ref_name }}

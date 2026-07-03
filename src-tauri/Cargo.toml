@@ -1,6 +1,6 @@
 [package]
 name = "rustybooks"
-version = "0.1.0"
+version = "0.2.0"
 description = "RustyBooks"
 authors = ["wei"]
 edition = "2021"
