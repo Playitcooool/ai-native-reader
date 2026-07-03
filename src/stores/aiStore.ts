@@ -15,9 +15,23 @@ export interface AiMessage {
   created_at: string;
 }
 
+export interface AiSessionListItem {
+  id: string;
+  document_id: string;
+  title: string | null;
+  scope_type: string;
+  scope_json: string;
+  created_at: string;
+  updated_at: string;
+  message_count: number;
+  last_message_preview: string | null;
+}
+
 interface AiState {
   messages: AiMessage[];
+  sessions: AiSessionListItem[];
   sessionId: string | null;
+  isLoadingSessions: boolean;
   isGenerating: boolean;
   aiPhase: string;
   streamingContent: string;
@@ -27,6 +41,9 @@ interface AiState {
   setMessages: (msgs: AiMessage[]) => void;
   setGenerating: (g: boolean) => void;
   setStreamingContent: (content: string) => void;
+  loadDocumentSessions: (documentId: string) => Promise<void>;
+  selectSession: (sessionId: string) => Promise<void>;
+  startNewSession: () => void;
   runWorkflow: (input: {
     documentId: string;
     documentTitle?: string;
@@ -56,6 +73,9 @@ export function setOcrPdfRef(pdf: any) {
 let cancelFlag = false;
 let isWorkflowRunning = false;
 let runningDocumentId: string | null = null;
+let activeDocumentId: string | null = null;
+let sessionsLoadToken = 0;
+let messagesLoadToken = 0;
 let streamBuffer = "";
 let streamTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -69,7 +89,9 @@ function flushStreamBuffer(set: any) {
 
 export const useAiStore = create<AiState>((set, get) => ({
   messages: [],
+  sessions: [],
   sessionId: null,
+  isLoadingSessions: false,
   isGenerating: false,
   aiPhase: "",
   streamingContent: "",
@@ -79,11 +101,56 @@ export const useAiStore = create<AiState>((set, get) => ({
   setMessages: (msgs) => set({ messages: msgs }),
   setGenerating: (g) => set({ isGenerating: g }),
   setStreamingContent: (content) => set({ streamingContent: content }),
+  loadDocumentSessions: async (documentId) => {
+    const token = ++sessionsLoadToken;
+    const switchingDocument = activeDocumentId !== documentId;
+    activeDocumentId = documentId;
+    if (switchingDocument) {
+      ++messagesLoadToken;
+      set({ messages: [], sessions: [], sessionId: null });
+    }
+    set({ isLoadingSessions: true });
+
+    try {
+      const sessions = await invoke<AiSessionListItem[]>("list_ai_sessions", {
+        documentId,
+        limit: 25,
+      });
+      if (token !== sessionsLoadToken || activeDocumentId !== documentId) return;
+
+      set({ sessions, isLoadingSessions: false });
+      if (!get().sessionId && sessions[0]) {
+        await get().selectSession(sessions[0].id);
+      }
+    } catch (err) {
+      if (token === sessionsLoadToken) set({ isLoadingSessions: false });
+      console.error("Failed to load AI sessions:", err);
+    }
+  },
+  selectSession: async (sessionId) => {
+    const token = ++messagesLoadToken;
+    set({ sessionId, messages: [], streamingContent: "" });
+    try {
+      const msgs = await invoke<AiMessage[]>("get_session_messages", {
+        sessionId,
+        limit: 50,
+      });
+      if (token !== messagesLoadToken || get().sessionId !== sessionId) return;
+      set({ messages: msgs });
+    } catch (err) {
+      console.error("Failed to load session messages:", err);
+    }
+  },
+  startNewSession: () => {
+    ++messagesLoadToken;
+    set({ sessionId: null, messages: [], streamingContent: "", aiPhase: "", lastWorkflowInput: null });
+  },
 
   runWorkflow: async (input) => {
     if (isWorkflowRunning) throw new Error("An AI workflow is already running.");
     isWorkflowRunning = true;
     runningDocumentId = input.documentId;
+    activeDocumentId = input.documentId;
     set({ isGenerating: true, aiPhase: "building_context", streamingContent: "", lastWorkflowInput: input as Record<string, any> });
 
     let unlisten: UnlistenFn[] = [];
@@ -180,6 +247,7 @@ export const useAiStore = create<AiState>((set, get) => ({
         streamingContent: "",
       }));
 
+      await get().loadDocumentSessions(input.documentId);
       return result.answer_md;
     } catch (err) {
       if (String(err).includes("cancelled")) return null;
@@ -211,14 +279,6 @@ export const useAiStore = create<AiState>((set, get) => ({
   },
 
   loadSessionMessages: async (sessionId) => {
-    try {
-      const msgs = await invoke<AiMessage[]>("get_session_messages", {
-        sessionId,
-        limit: 50,
-      });
-      set({ messages: msgs, sessionId });
-    } catch (err) {
-      console.error("Failed to load session messages:", err);
-    }
+    await get().selectSession(sessionId);
   },
 }));

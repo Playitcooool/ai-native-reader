@@ -580,6 +580,7 @@
 
 .ai-primary-button,
 .ai-ghost-button,
+.ai-session-select,
 .ai-thinking button,
 .ai-stream-header button,
 .ai-message-actions button {
@@ -599,6 +600,7 @@
 }
 
 .ai-ghost-button,
+.ai-session-select,
 .ai-thinking button,
 .ai-stream-header button,
 .ai-message-actions button {
@@ -608,11 +610,17 @@
 
 .ai-primary-button:disabled,
 .ai-ghost-button:disabled,
+.ai-session-select:disabled,
 .ai-thinking button:disabled,
 .ai-stream-header button:disabled,
 .ai-message-actions button:disabled {
   cursor: default;
   opacity: 0.55;
+}
+
+.ai-session-select {
+  max-width: 132px;
+  height: 26px;
 }
 
 .ai-range label {

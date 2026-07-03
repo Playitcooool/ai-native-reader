@@ -29,6 +29,19 @@ pub struct AiSession {
     pub updated_at: String,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct AiSessionListItem {
+    pub id: String,
+    pub document_id: String,
+    pub title: Option<String>,
+    pub scope_type: String,
+    pub scope_json: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub message_count: i64,
+    pub last_message_preview: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct GetOrCreateSessionInput {
     pub document_id: String,
@@ -100,6 +113,101 @@ pub fn get_or_create_ai_session(
     })
 }
 
+fn list_ai_sessions_for_conn(
+    conn: &rusqlite::Connection,
+    document_id: &str,
+    limit: i64,
+) -> Result<Vec<AiSessionListItem>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT s.id, s.document_id, s.title, s.scope_type, s.scope_json, s.created_at, s.updated_at,
+                    COUNT(m.id) AS message_count,
+                    (
+                        SELECT lm.content
+                        FROM ai_messages lm
+                        WHERE lm.session_id = s.id
+                        ORDER BY lm.created_at DESC, lm.rowid DESC
+                        LIMIT 1
+                    ) AS last_message_preview
+             FROM ai_sessions s
+             JOIN ai_messages m ON m.session_id = s.id
+             WHERE s.document_id = ?1
+             GROUP BY s.id
+             HAVING message_count > 0
+             ORDER BY s.updated_at DESC, s.rowid DESC
+             LIMIT ?2",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let sessions = stmt
+        .query_map(rusqlite::params![document_id, limit.max(1)], |row| {
+            let preview = row
+                .get::<_, Option<String>>(8)?
+                .map(|s| s.chars().take(120).collect());
+            Ok(AiSessionListItem {
+                id: row.get(0)?,
+                document_id: row.get(1)?,
+                title: row.get(2)?,
+                scope_type: row.get(3)?,
+                scope_json: row.get(4)?,
+                created_at: row.get(5)?,
+                updated_at: row.get(6)?,
+                message_count: row.get(7)?,
+                last_message_preview: preview,
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    Ok(sessions)
+}
+
+#[tauri::command]
+pub fn list_ai_sessions(
+    db: State<DbState>,
+    document_id: String,
+    limit: Option<i64>,
+) -> Result<Vec<AiSessionListItem>, String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    list_ai_sessions_for_conn(&conn, &document_id, limit.unwrap_or(25))
+}
+
+fn get_session_messages_for_conn(
+    conn: &rusqlite::Connection,
+    session_id: &str,
+    limit: i64,
+) -> Result<Vec<serde_json::Value>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, session_id, role, content, citations_json, context_snapshot_json, page_number, selection_anchor_json, is_compacted, created_at
+             FROM ai_messages WHERE session_id = ?1
+             ORDER BY created_at ASC, rowid ASC LIMIT ?2",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let messages = stmt
+        .query_map(rusqlite::params![session_id, limit.max(1)], |row| {
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "session_id": row.get::<_, String>(1)?,
+                "role": row.get::<_, String>(2)?,
+                "content": row.get::<_, String>(3)?,
+                "citations_json": row.get::<_, Option<String>>(4)?,
+                "context_snapshot_json": row.get::<_, Option<String>>(5)?,
+                "page_number": row.get::<_, Option<i64>>(6)?,
+                "selection_anchor_json": row.get::<_, Option<String>>(7)?,
+                "is_compacted": row.get::<_, bool>(8)?,
+                "created_at": row.get::<_, String>(9)?,
+            }))
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    Ok(messages)
+}
+
 #[tauri::command]
 pub fn get_session_messages(
     db: State<DbState>,
@@ -107,34 +215,7 @@ pub fn get_session_messages(
     limit: Option<i64>,
 ) -> Result<Vec<serde_json::Value>, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
-    let limit = limit.unwrap_or(50);
-    let mut stmt = conn
-        .prepare(
-            "SELECT id, role, content, citations_json, context_snapshot_json, page_number, selection_anchor_json, is_compacted, created_at
-             FROM ai_messages WHERE session_id = ?1
-             ORDER BY created_at ASC LIMIT ?2",
-        )
-        .map_err(|e| e.to_string())?;
-
-    let messages = stmt
-        .query_map(rusqlite::params![session_id, limit], |row| {
-            Ok(serde_json::json!({
-                "id": row.get::<_, String>(0)?,
-                "role": row.get::<_, String>(1)?,
-                "content": row.get::<_, String>(2)?,
-                "citations_json": row.get::<_, Option<String>>(3)?,
-                "context_snapshot_json": row.get::<_, Option<String>>(4)?,
-                "page_number": row.get::<_, Option<i64>>(5)?,
-                "selection_anchor_json": row.get::<_, Option<String>>(6)?,
-                "is_compacted": row.get::<_, bool>(7)?,
-                "created_at": row.get::<_, String>(8)?,
-            }))
-        })
-        .map_err(|e| e.to_string())?
-        .filter_map(|r| r.ok())
-        .collect();
-
-    Ok(messages)
+    get_session_messages_for_conn(&conn, &session_id, limit.unwrap_or(50))
 }
 
 #[derive(Debug, Deserialize)]
@@ -926,4 +1007,102 @@ pub async fn run_ai_workflow(
         answer_md: answer,
         context_snapshot: context_pack,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn conn_with_ai_tables() -> rusqlite::Connection {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "
+            CREATE TABLE ai_sessions (
+                id TEXT PRIMARY KEY,
+                document_id TEXT NOT NULL,
+                title TEXT,
+                scope_type TEXT NOT NULL,
+                scope_json TEXT NOT NULL,
+                session_summary TEXT,
+                last_compacted_message_id TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE ai_messages (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT NOT NULL,
+                citations_json TEXT,
+                context_snapshot_json TEXT,
+                page_number INTEGER,
+                selection_anchor_json TEXT,
+                is_compacted INTEGER DEFAULT 0,
+                created_at TEXT NOT NULL
+            );
+            ",
+        )
+        .unwrap();
+        conn
+    }
+
+    fn insert_session(conn: &rusqlite::Connection, id: &str, doc: &str, updated: &str) {
+        conn.execute(
+            "INSERT INTO ai_sessions (id, document_id, scope_type, scope_json, created_at, updated_at)
+             VALUES (?1, ?2, 'ask', '{}', '2026-01-01T00:00:00Z', ?3)",
+            rusqlite::params![id, doc, updated],
+        )
+        .unwrap();
+    }
+
+    fn insert_message(
+        conn: &rusqlite::Connection,
+        id: &str,
+        session: &str,
+        role: &str,
+        content: &str,
+    ) {
+        conn.execute(
+            "INSERT INTO ai_messages (id, session_id, role, content, created_at)
+             VALUES (?1, ?2, ?3, ?4, '2026-01-01T00:00:00Z')",
+            rusqlite::params![id, session, role, content],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn lists_sessions_newest_first_for_document_and_skips_empty() {
+        let conn = conn_with_ai_tables();
+        insert_session(&conn, "old", "doc1", "2026-01-01T00:00:00Z");
+        insert_session(&conn, "new", "doc1", "2026-01-02T00:00:00Z");
+        insert_session(&conn, "empty", "doc1", "2026-01-03T00:00:00Z");
+        insert_session(&conn, "other", "doc2", "2026-01-04T00:00:00Z");
+        insert_message(&conn, "m1", "old", "user", "old question");
+        insert_message(&conn, "m2", "new", "assistant", "new answer");
+        insert_message(&conn, "m3", "other", "user", "other doc");
+
+        let sessions = list_ai_sessions_for_conn(&conn, "doc1", 25).unwrap();
+        let ids: Vec<_> = sessions.iter().map(|s| s.id.as_str()).collect();
+
+        assert_eq!(ids, vec!["new", "old"]);
+        assert_eq!(sessions[0].message_count, 1);
+        assert_eq!(
+            sessions[0].last_message_preview.as_deref(),
+            Some("new answer")
+        );
+    }
+
+    #[test]
+    fn loaded_messages_include_session_id_and_keep_insert_order_for_tied_times() {
+        let conn = conn_with_ai_tables();
+        insert_session(&conn, "s1", "doc1", "2026-01-01T00:00:00Z");
+        insert_message(&conn, "u1", "s1", "user", "question");
+        insert_message(&conn, "a1", "s1", "assistant", "answer");
+
+        let messages = get_session_messages_for_conn(&conn, "s1", 50).unwrap();
+
+        assert_eq!(messages[0]["session_id"], "s1");
+        assert_eq!(messages[0]["role"], "user");
+        assert_eq!(messages[1]["role"], "assistant");
+    }
 }

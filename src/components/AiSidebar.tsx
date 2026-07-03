@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { documentDisplayTitle, useDocumentStore } from "../stores/documentStore";
-import { type AiMessage, useAiStore } from "../stores/aiStore";
+import { type AiMessage, type AiSessionListItem, useAiStore } from "../stores/aiStore";
 import { useUndoStore } from "../stores/undoStore";
 import { inferAskScope } from "../features/ai/promptScope";
 import { draftFromSelection, shouldFollowScroll } from "../features/ai/aiPanelHelpers";
@@ -15,7 +15,22 @@ interface AiSidebarProps {
 
 export default function AiSidebar({ draftInput, onDraftConsumed }: AiSidebarProps) {
   const { currentDocument, currentPage, setCurrentPage, tocNodes } = useDocumentStore();
-  const { messages, isGenerating, aiPhase, streamingContent, runWorkflow, cancelWorkflow, retryLastWorkflow, lastWorkflowInput } = useAiStore();
+  const {
+    messages,
+    sessions,
+    sessionId,
+    isLoadingSessions,
+    isGenerating,
+    aiPhase,
+    streamingContent,
+    loadDocumentSessions,
+    selectSession,
+    startNewSession,
+    runWorkflow,
+    cancelWorkflow,
+    retryLastWorkflow,
+    lastWorkflowInput,
+  } = useAiStore();
   const pushUndo = useUndoStore((s) => s.pushUndo);
   const [input, setInput] = useState("");
   const [rangeStart, setRangeStart] = useState("");
@@ -33,6 +48,10 @@ export default function AiSidebar({ draftInput, onDraftConsumed }: AiSidebarProp
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
+
+  useEffect(() => {
+    if (currentDocument) loadDocumentSessions(currentDocument.id);
+  }, [currentDocument?.id, loadDocumentSessions]);
 
   useEffect(() => {
     if (!draftInput) return;
@@ -235,6 +254,22 @@ export default function AiSidebar({ draftInput, onDraftConsumed }: AiSidebarProp
         <button className="ai-primary-button" onClick={handleSummarizePage} disabled={isGenerating}>Page</button>
         <button className="ai-ghost-button" onClick={handleSummarizeDocument} disabled={isGenerating || !currentDocument.page_count}>Paper</button>
         <button className={showRange ? "ai-primary-button" : "ai-ghost-button"} onClick={toggleRange}>Range</button>
+        <select
+          className="ai-session-select"
+          value={sessionId ?? ""}
+          onChange={(e) => {
+            if (e.target.value) selectSession(e.target.value);
+          }}
+          disabled={isGenerating || isLoadingSessions || sessions.length === 0}
+          title="AI chat history"
+          aria-label="AI chat history"
+        >
+          <option value="">{isLoadingSessions ? "Loading chats" : "History"}</option>
+          {sessions.map((session) => (
+            <option key={session.id} value={session.id}>{sessionLabel(session)}</option>
+          ))}
+        </select>
+        <button className="ai-ghost-button" onClick={startNewSession} disabled={isGenerating}>New</button>
         {selectedText && (
           <button className="ai-ghost-button" onMouseDown={(e) => e.preventDefault()} onClick={() => setInput(draftFromSelection(selectedText))} disabled={isGenerating}>
             Ask Selection
@@ -348,6 +383,13 @@ function modeLabel(mode: string): string {
   if (mode === "pages_qa") return "pages";
   if (mode === "selection_explain") return "selection";
   return "question";
+}
+
+function sessionLabel(session: AiSessionListItem): string {
+  const preview = session.last_message_preview?.trim() || session.title || session.scope_type;
+  const date = new Date(session.updated_at);
+  const stamp = Number.isNaN(date.getTime()) ? "" : `${date.toLocaleDateString()} `;
+  return `${stamp}${preview}`;
 }
 
 function phaseLabel(aiPhase: string): string {

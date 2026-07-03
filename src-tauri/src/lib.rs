@@ -158,6 +158,7 @@ pub fn run() {
             commands::settings::set_default_provider,
             commands::settings::test_provider,
             commands::ai::get_or_create_ai_session,
+            commands::ai::list_ai_sessions,
             commands::ai::get_session_messages,
             commands::ai::save_ai_message,
             commands::ai::compact_session,
