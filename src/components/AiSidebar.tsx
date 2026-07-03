@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { documentDisplayTitle, useDocumentStore } from "../stores/documentStore";
 import { type AiMessage, type AiSessionListItem, useAiStore } from "../stores/aiStore";
 import { useUndoStore } from "../stores/undoStore";
-import { inferAskScope } from "../features/ai/promptScope";
+import { inferAskScope, scopeFromTocNode } from "../features/ai/promptScope";
 import { draftFromSelection, shouldFollowScroll } from "../features/ai/aiPanelHelpers";
 import { useToast } from "./Toast";
 const AiMarkdown = lazy(() => import("./AiMarkdown"));
@@ -14,7 +14,7 @@ interface AiSidebarProps {
 }
 
 export default function AiSidebar({ draftInput, onDraftConsumed }: AiSidebarProps) {
-  const { currentDocument, currentPage, setCurrentPage, tocNodes } = useDocumentStore();
+  const { currentDocument, currentPage, setCurrentPage, tocNodes, activeTocNodeId } = useDocumentStore();
   const {
     messages,
     sessions,
@@ -39,6 +39,8 @@ export default function AiSidebar({ draftInput, onDraftConsumed }: AiSidebarProp
   const [feedback, setFeedback] = useState("");
   const [showRange, setShowRange] = useState(false);
   const [selectedText, setSelectedText] = useState("");
+  const [askScopeMode, setAskScopeMode] = useState<"auto" | "chapter">("auto");
+  const [selectedTocNodeId, setSelectedTocNodeId] = useState("");
   const [showJump, setShowJump] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -79,6 +81,22 @@ export default function AiSidebar({ draftInput, onDraftConsumed }: AiSidebarProp
   }, [messages, streamingContent]);
 
   const maxPage = currentDocument?.page_count ?? 0;
+  const selectedTocNode = useMemo(
+    () => tocNodes.find((node) => node.id === selectedTocNodeId) ?? null,
+    [selectedTocNodeId, tocNodes],
+  );
+
+  useEffect(() => {
+    if (tocNodes.length === 0) {
+      setAskScopeMode("auto");
+      setSelectedTocNodeId("");
+      return;
+    }
+    if (!tocNodes.some((node) => node.id === selectedTocNodeId)) {
+      setSelectedTocNodeId((activeTocNodeId && tocNodes.some((node) => node.id === activeTocNodeId)) ? activeTocNodeId : tocNodes[0].id);
+    }
+  }, [activeTocNodeId, selectedTocNodeId, tocNodes]);
+
   const parsedRange = useMemo(() => {
     const start = Number(rangeStart);
     const end = Number(rangeEnd);
@@ -138,7 +156,9 @@ export default function AiSidebar({ draftInput, onDraftConsumed }: AiSidebarProp
     if (!currentDocument || !input.trim()) return;
     const question = input.trim();
     setInput("");
-    const scope = inferAskScope(question, currentPage, tocNodes, currentDocument.page_count ?? 0);
+    const scope = askScopeMode === "chapter" && selectedTocNode
+      ? scopeFromTocNode(selectedTocNode)
+      : inferAskScope(question, currentPage, tocNodes, currentDocument.page_count ?? 0);
     const pageCount = currentDocument.page_count ?? 0;
     if (scope.kind === "range" && pageCount > 0 && (scope.startPage < 1 || scope.endPage > pageCount)) {
       throw new Error(`Requested pages ${scope.startPage}-${scope.endPage}, but this document has ${pageCount} pages.`);
@@ -162,7 +182,7 @@ export default function AiSidebar({ draftInput, onDraftConsumed }: AiSidebarProp
       tocNodeId: scope.kind === "section" ? scope.node.id : undefined,
       question,
     });
-  }, "AI request failed"), [currentDocument, currentPage, input, tocNodes, runWorkflow, runSafely]);
+  }, "AI request failed"), [askScopeMode, currentDocument, currentPage, input, selectedTocNode, tocNodes, runWorkflow, runSafely]);
 
   const handleSaveAsNote = useCallback(async (msg: AiMessage) => {
     if (!currentDocument || savedNotes.has(msg.id)) return;
@@ -233,6 +253,13 @@ export default function AiSidebar({ draftInput, onDraftConsumed }: AiSidebarProp
       return !open;
     });
   }, [currentPage]);
+
+  const selectAskScopeMode = useCallback((mode: "auto" | "chapter") => {
+    setAskScopeMode(mode);
+    if (mode === "chapter") {
+      setSelectedTocNodeId((activeTocNodeId && tocNodes.some((node) => node.id === activeTocNodeId)) ? activeTocNodeId : tocNodes[0]?.id ?? "");
+    }
+  }, [activeTocNodeId, tocNodes]);
 
   if (!currentDocument) {
     return (
@@ -349,6 +376,32 @@ export default function AiSidebar({ draftInput, onDraftConsumed }: AiSidebarProp
       {showJump && <button className="ai-jump-latest" onClick={jumpToLatest}>Jump to latest</button>}
       {feedback && <div className="ai-feedback" role="status" onAnimationEnd={() => setFeedback("")}>{feedback}</div>}
 
+      <div className="ai-ask-scope">
+        <select
+          className="ai-scope-select"
+          value={askScopeMode}
+          onChange={(e) => selectAskScopeMode(e.target.value as "auto" | "chapter")}
+          disabled={isGenerating}
+          aria-label="Ask scope"
+        >
+          <option value="auto">Auto</option>
+          <option value="chapter" disabled={tocNodes.length === 0}>Chapter</option>
+        </select>
+        {askScopeMode === "chapter" && tocNodes.length > 0 && (
+          <select
+            className="ai-chapter-select"
+            value={selectedTocNodeId}
+            onChange={(e) => setSelectedTocNodeId(e.target.value)}
+            disabled={isGenerating}
+            aria-label="Chapter"
+          >
+            {tocNodes.map((node) => (
+              <option key={node.id} value={node.id}>{tocOptionLabel(node, currentDocument.document_type)}</option>
+            ))}
+          </select>
+        )}
+      </div>
+
       <div className="ai-composer">
         <textarea
           ref={inputRef}
@@ -408,4 +461,10 @@ function contextWarnings(msg: AiMessage): string[] {
   } catch {
     return [];
   }
+}
+
+function tocOptionLabel(node: { title: string; level: number; start_page: number; end_page: number | null }, documentType: string): string {
+  const unit = documentType === "epub" ? "ch." : "p.";
+  const end = node.end_page ?? node.start_page;
+  return `${"  ".repeat(node.level)}${node.title} (${unit} ${node.start_page}${end === node.start_page ? "" : `-${end}`})`;
 }

@@ -9,6 +9,10 @@ export type AskScope =
   | { kind: "range"; startPage: number; endPage: number }
   | { kind: "section"; node: TocNode; startPage: number; endPage: number };
 
+export function scopeFromTocNode(node: TocNode): AskScope {
+  return { kind: "section", node, startPage: node.start_page, endPage: node.end_page ?? node.start_page };
+}
+
 export function inferAskScope(question: string, currentPage: number, tocNodes: TocNode[], pageCount = 0): AskScope {
   const explicitPages = parseExplicitPages(question);
   if (explicitPages) return explicitPages;
@@ -20,9 +24,7 @@ export function inferAskScope(question: string, currentPage: number, tocNodes: T
   }
   if (!SECTION_INTENT_RE.test(question)) return { kind: "page" };
   const node = activeTocNode(currentPage, tocNodes);
-  return node
-    ? { kind: "section", node, startPage: node.start_page, endPage: node.end_page ?? node.start_page }
-    : { kind: "page" };
+  return node ? scopeFromTocNode(node) : { kind: "page" };
 }
 
 function parseExplicitPages(question: string): AskScope | null {

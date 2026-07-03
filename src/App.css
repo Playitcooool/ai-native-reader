@@ -325,6 +325,8 @@
 .reader-drawer {
   left: 14px;
   width: min(360px, calc(100vw - 28px));
+  display: flex;
+  flex-direction: column;
 }
 
 .ai-sheet {
@@ -621,6 +623,34 @@
 .ai-session-select {
   max-width: 132px;
   height: 26px;
+}
+
+.ai-ask-scope {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 8px 12px 0;
+  background: var(--bg-primary);
+}
+
+.ai-scope-select,
+.ai-chapter-select {
+  min-width: 0;
+  height: 28px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12px;
+}
+
+.ai-scope-select {
+  flex: 0 0 86px;
+}
+
+.ai-chapter-select {
+  flex: 1;
 }
 
 .ai-range label {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { pagesNeededForWorkflow } from "../src/features/ai/workflowPages";
-import { inferAskScope } from "../src/features/ai/promptScope";
+import { inferAskScope, scopeFromTocNode } from "../src/features/ai/promptScope";
 import { samplePagesForOpen } from "../src/features/pdf/pdfTextExtraction";
 import type { TocNode } from "../src/features/toc/TocSidebar";
 
@@ -142,6 +142,27 @@ describe("inferAskScope", () => {
       kind: "range",
       startPage: 1,
       endPage: 120,
+    });
+  });
+});
+
+describe("scopeFromTocNode", () => {
+  it("maps a TOC node to a section scope", () => {
+    expect(scopeFromTocNode(tocNode)).toEqual({
+      kind: "section",
+      node: tocNode,
+      startPage: 3,
+      endPage: 9,
+    });
+  });
+
+  it("falls back to the start page when the TOC node has no end page", () => {
+    const openEndedNode = { ...tocNode, end_page: null };
+    expect(scopeFromTocNode(openEndedNode)).toEqual({
+      kind: "section",
+      node: openEndedNode,
+      startPage: 3,
+      endPage: 3,
     });
   });
 });
