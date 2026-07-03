@@ -3352,7 +3352,6 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "epub",
- "hex",
  "leptess",
  "lopdf",
  "notify",
@@ -3361,7 +3360,6 @@ dependencies = [
  "scraper",
  "serde",
  "serde_json",
- "sha2",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",

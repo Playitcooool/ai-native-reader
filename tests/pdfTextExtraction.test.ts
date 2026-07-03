@@ -3,6 +3,7 @@ import {
   ensureDocumentTextReady,
   ensurePagesTextReady,
   normalizeExtractedText,
+  PageExtractionQueue,
 } from "../src/features/pdf/pdfTextExtraction";
 
 describe("normalizeExtractedText", () => {
@@ -126,5 +127,25 @@ describe("ensurePagesTextReady", () => {
     await ensureDocumentTextReady("doc", 3, { pdf, invoke: invoke as any });
 
     expect(pdf.getPage.mock.calls.map(([page]: [number]) => page)).toEqual([1, 2, 3]);
+  });
+});
+
+describe("PageExtractionQueue", () => {
+  it("extracts the current page before lower-priority neighbors", async () => {
+    const pdf = fakePdf({ 1: "one", 2: "two", 3: "three", 4: "four", 5: "five" });
+    const saved: Array<{ pageNumber: number; text: string }> = [];
+    const queue = new PageExtractionQueue(
+      pdf,
+      "doc",
+      async (_docId, pages) => { saved.push(...pages); },
+      vi.fn(),
+    );
+
+    queue.setCurrentPage(3, 5);
+    await vi.waitFor(() => expect(pdf.getPage).toHaveBeenCalledTimes(5));
+    queue.flushPending();
+
+    expect(saved.map((page) => page.pageNumber)).toEqual([3, 2, 4, 1, 5]);
+    queue.destroy();
   });
 });

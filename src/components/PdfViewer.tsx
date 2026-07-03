@@ -89,6 +89,24 @@ export default function PdfViewer({ documentId, onBackHome, onOpenLibrary, onOpe
   const [annotationsByPage, setAnnotationsByPage] = useState<Record<number, Annotation[]>>({});
   const searchCancelledRef = useRef(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const indexedCountTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const refreshIndexedPageCount = useCallback((delay = 500) => {
+    if (indexedCountTimerRef.current) return;
+    indexedCountTimerRef.current = setTimeout(() => {
+      indexedCountTimerRef.current = null;
+      invoke<number>("count_indexed_pages", { documentId })
+        .then(setIndexedPageCount)
+        .catch(() => {});
+    }, delay);
+  }, [documentId]);
+
+  useEffect(() => {
+    return () => {
+      if (indexedCountTimerRef.current) clearTimeout(indexedCountTimerRef.current);
+      indexedCountTimerRef.current = null;
+    };
+  }, [documentId]);
 
   useEffect(() => {
     const refresh = () => setHighlightRefreshKey((key) => key + 1);
@@ -208,10 +226,12 @@ export default function PdfViewer({ documentId, onBackHome, onOpenLibrary, onOpe
         setPageHeights(new Array(pdf.numPages).fill(vp.height));
         p1.cleanup();
 
-        const tocInput = await extractToc(pdf, pdf.numPages);
-        if (destroyed) return;
-        if (tocInput.length > 0) {
-          await invoke<TocNodeInput[]>("save_toc_nodes", { documentId, nodes: tocInput });
+        if (!currentDocument?.has_native_toc) {
+          const tocInput = await extractToc(pdf, pdf.numPages);
+          if (destroyed) return;
+          if (tocInput.length > 0) {
+            await invoke<TocNodeInput[]>("save_toc_nodes", { documentId, nodes: tocInput });
+          }
         }
         await loadToc(documentId);
 
@@ -244,9 +264,7 @@ export default function PdfViewer({ documentId, onBackHome, onOpenLibrary, onOpe
             ensureDocumentTextReady(documentId, pdf.numPages, {
               pdf,
               isCancelled: () => destroyed,
-            }).then(() =>
-              invoke<number>("count_indexed_pages", { documentId }).then(setIndexedPageCount).catch(() => {})
-            ).catch(() => {});
+            }).then(() => refreshIndexedPageCount(0)).catch(() => {});
           }, 1000);
         }
       } catch (err) {
@@ -284,10 +302,8 @@ export default function PdfViewer({ documentId, onBackHome, onOpenLibrary, onOpe
 
   useEffect(() => {
     if (!documentId) return;
-    invoke<number>("count_indexed_pages", { documentId })
-      .then(setIndexedPageCount)
-      .catch(() => {});
-  }, [documentId, extractionDone]);
+    refreshIndexedPageCount(extractionDone === 0 ? 0 : 1000);
+  }, [documentId, extractionDone, refreshIndexedPageCount]);
 
   // Active TOC node — derive from currentPage
   useEffect(() => {
@@ -446,7 +462,7 @@ export default function PdfViewer({ documentId, onBackHome, onOpenLibrary, onOpe
           onPhase: (phase, pageNumber) => setSearchPhase(phase === "ocr" ? `OCR page ${pageNumber}` : `Preparing page ${pageNumber}`),
         });
         if (searchCancelledRef.current) return;
-        invoke<number>("count_indexed_pages", { documentId }).then(setIndexedPageCount).catch(() => {});
+        refreshIndexedPageCount(0);
       }
       setSearchPhase("Searching");
       const results = await invoke<Array<{ pageNum: number; context: string }>>("search_pages_text", {
@@ -462,7 +478,7 @@ export default function PdfViewer({ documentId, onBackHome, onOpenLibrary, onOpe
       setIsSearching(false);
       setSearchPhase("");
     }
-  }, [documentId, pageCount, setCurrentPage]);
+  }, [documentId, pageCount, refreshIndexedPageCount, setCurrentPage]);
 
   // Cancel search on unmount
   useEffect(() => {

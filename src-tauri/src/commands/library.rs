@@ -1,4 +1,3 @@
-use crate::commands::documents;
 use crate::commands::settings::DbState;
 use chrono::Utc;
 use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
@@ -100,8 +99,7 @@ fn scan_folder_into_db(
         // lock released here when conn + stmt drop
     };
 
-    // Walk filesystem and compute hashes OUTSIDE the lock
-    let mut pending: Vec<(String, String, String, String)> = Vec::new(); // (path, filename, sha256, doc_type)
+    let mut pending: Vec<(String, String, String)> = Vec::new(); // (path, filename, doc_type)
     let mut dirs = vec![std::path::PathBuf::from(folder_path)];
     while let Some(dir) = dirs.pop() {
         let Ok(entries) = fs::read_dir(&dir) else {
@@ -125,9 +123,8 @@ fn scan_folder_into_db(
                         .file_name()
                         .map(|n| n.to_string_lossy().to_string())
                         .unwrap_or_default();
-                    let sha256 = documents::compute_sha256(&path_str)?;
                     let doc_type = if ext == "epub" { "epub" } else { "pdf" };
-                    pending.push((path_str, filename, sha256, doc_type.to_string()));
+                    pending.push((path_str, filename, doc_type.to_string()));
                 }
             }
         }
@@ -138,17 +135,9 @@ fn scan_folder_into_db(
     }
 
     // Extract metadata before acquiring the lock (avoids blocking DB during file I/O)
-    let enriched: Vec<(
-        String,
-        String,
-        String,
-        String,
-        String,
-        String,
-        Option<String>,
-    )> = pending
+    let enriched: Vec<(String, String, String, String, String, Option<String>)> = pending
         .iter()
-        .map(|(path_str, filename, sha256, doc_type)| {
+        .map(|(path_str, filename, doc_type)| {
             let (meta_title, meta_author) = if doc_type == "pdf" {
                 crate::pdf::extract_metadata(path_str)
             } else {
@@ -160,7 +149,6 @@ fn scan_folder_into_db(
                 title,
                 filename.clone(),
                 path_str.clone(),
-                sha256.clone(),
                 doc_type.clone(),
                 meta_author,
             )
@@ -170,11 +158,11 @@ fn scan_folder_into_db(
     // Acquire lock only for the INSERTs
     let conn = conn_mutex.lock().map_err(|e| e.to_string())?;
     let now = Utc::now().to_rfc3339();
-    for (id, title, filename, path_str, sha256, doc_type, meta_author) in &enriched {
+    for (id, title, filename, path_str, doc_type, meta_author) in &enriched {
         conn.execute(
             "INSERT INTO documents (id, title, original_filename, file_path, file_sha256, page_count, created_at, updated_at, last_opened_at, parse_status, has_native_toc, document_type, author)
              VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?6, ?7, ?8, 'pending', 0, ?9, ?10)",
-            rusqlite::params![id, title, filename, path_str, sha256, now, now, now, doc_type, meta_author],
+            rusqlite::params![id, title, filename, path_str, Option::<String>::None, now, now, now, doc_type, meta_author],
         )
         .map_err(|e| e.to_string())?;
     }
@@ -240,7 +228,6 @@ fn start_watcher(
                                 .file_name()
                                 .map(|n| n.to_string_lossy().to_string())
                                 .unwrap_or_default();
-                            let sha256 = documents::compute_sha256(&path_str).unwrap_or_default();
                             let doc_type = if ext == "epub" { "epub" } else { "pdf" };
                             let (meta_title, meta_author) = if doc_type == "pdf" {
                                 crate::pdf::extract_metadata(&path_str)
@@ -260,7 +247,7 @@ fn start_watcher(
                                     title,
                                     filename,
                                     path_str,
-                                    sha256,
+                                    Option::<String>::None,
                                     now,
                                     now,
                                     now,

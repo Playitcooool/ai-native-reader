@@ -1,29 +1,10 @@
 use super::settings::DbState;
 use crate::db::models::{Collection, Document, DocumentCollection};
 use chrono::Utc;
-use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::PathBuf;
 use tauri::State;
 use uuid::Uuid;
-
-use std::io::Read;
-
-pub(crate) fn compute_sha256(path: &str) -> Result<String, String> {
-    let mut file = fs::File::open(path).map_err(|e| format!("Failed to open file: {}", e))?;
-    let mut hasher = Sha256::new();
-    let mut buf = [0u8; 65536];
-    loop {
-        let n = file
-            .read(&mut buf)
-            .map_err(|e| format!("Failed to read file: {}", e))?;
-        if n == 0 {
-            break;
-        }
-        hasher.update(&buf[..n]);
-    }
-    Ok(hex::encode(hasher.finalize()))
-}
 
 #[tauri::command]
 pub fn import_document(db: State<DbState>, file_path: String) -> Result<Document, String> {
@@ -49,8 +30,6 @@ pub fn import_document(db: State<DbState>, file_path: String) -> Result<Document
         (None, None)
     };
 
-    let sha256 = compute_sha256(&file_path)?;
-
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     let id = Uuid::new_v4().to_string();
     let now = Utc::now().to_rfc3339();
@@ -60,7 +39,7 @@ pub fn import_document(db: State<DbState>, file_path: String) -> Result<Document
     conn.execute(
         "INSERT INTO documents (id, title, original_filename, file_path, file_sha256, page_count, created_at, updated_at, last_opened_at, parse_status, has_native_toc, document_type, author)
          VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?6, ?7, ?8, 'pending', 0, ?9, ?10)",
-        rusqlite::params![id, title, filename, file_path, sha256, now, now, now, doc_type, meta_author],
+        rusqlite::params![id, title, filename, file_path, Option::<String>::None, now, now, now, doc_type, meta_author],
     )
     .map_err(|e| format!("Failed to insert document: {}", e))?;
 
@@ -69,7 +48,7 @@ pub fn import_document(db: State<DbState>, file_path: String) -> Result<Document
         title: Some(title),
         original_filename: filename,
         file_path,
-        file_sha256: Some(sha256),
+        file_sha256: None,
         page_count: None,
         created_at: now.clone(),
         updated_at: now.clone(),

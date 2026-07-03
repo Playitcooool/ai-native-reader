@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 import { writeTextFile } from "@tauri-apps/plugin-fs";
@@ -190,22 +190,27 @@ export default function LeftSidebar() {
     libraryFolder,
     isLoading: docsLoading,
     loadDocuments,
-    loadLibraryFolder,
     setCurrentDocument,
     setLibraryFolder,
     setCurrentPage,
   } = useDocumentStore();
   const { annotations, isLoading: notesLoading, loadAnnotations, deleteAnnotation } = useNotesStore();
   const { addToast } = useToast();
-  const notes = annotations.filter((ann) => NOTE_LIKE_ANNOTATION_TYPES.has(ann.type));
-  const visibleDocuments = filterDocumentsByCollection(documents, selectedCollectionId, documentCollections);
-
-  useEffect(() => {
-    loadDocuments().catch(() =>
-      addToast({ type: "error", message: "Failed to load documents." })
-    );
-    loadLibraryFolder();
-  }, [loadDocuments, loadLibraryFolder, addToast]);
+  const notes = useMemo(() => annotations.filter((ann) => NOTE_LIKE_ANNOTATION_TYPES.has(ann.type)), [annotations]);
+  const visibleDocuments = useMemo(
+    () => filterDocumentsByCollection(documents, selectedCollectionId, documentCollections),
+    [documents, selectedCollectionId, documentCollections],
+  );
+  const nonFolderDocs = useMemo(
+    () => libraryFolder
+      ? visibleDocuments.filter((d) => !d.file_path.startsWith(libraryFolder))
+      : [],
+    [libraryFolder, visibleDocuments],
+  );
+  const fileTree = useMemo(
+    () => libraryFolder ? buildFileTree(visibleDocuments, libraryFolder) : [],
+    [libraryFolder, visibleDocuments],
+  );
 
   useEffect(() => {
     if (currentDocument) {
@@ -225,10 +230,6 @@ export default function LeftSidebar() {
     window.addEventListener("annotations-changed", refresh);
     return () => window.removeEventListener("annotations-changed", refresh);
   }, [currentDocument, loadAnnotations, addToast]);
-
-  const nonFolderDocs = libraryFolder
-    ? visibleDocuments.filter((d) => !d.file_path.startsWith(libraryFolder))
-    : [];
 
   const handleOpenDocument = (doc: typeof documents[0]) => {
     setCurrentDocument(doc);
@@ -384,7 +385,7 @@ export default function LeftSidebar() {
             ) : libraryFolder ? (
               <div>
                 <FileTreeView
-                  nodes={buildFileTree(visibleDocuments, libraryFolder)}
+                  nodes={fileTree}
                   currentId={currentDocument?.id ?? null}
                   onSelect={handleOpenDocument}
                   onContextMenu={handleContextMenu}

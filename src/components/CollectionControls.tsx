@@ -1,7 +1,7 @@
+import { useMemo } from "react";
 import type { Document } from "../stores/documentStore";
 import {
   collectionIdsForDocument,
-  filterDocumentsByCollection,
   useDocumentStore,
 } from "../stores/documentStore";
 import { useToast } from "./Toast";
@@ -13,6 +13,15 @@ export function CollectionFilterChips({ documents }: { documents: Document[] }) 
     selectedCollectionId,
     setSelectedCollectionId,
   } = useDocumentStore();
+  const collectionCounts = useMemo(() => {
+    const documentIds = new Set(documents.map((doc) => doc.id));
+    const counts = new Map<string, number>();
+    for (const membership of documentCollections) {
+      if (!documentIds.has(membership.document_id)) continue;
+      counts.set(membership.collection_id, (counts.get(membership.collection_id) ?? 0) + 1);
+    }
+    return counts;
+  }, [documents, documentCollections]);
 
   if (collections.length === 0) return null;
 
@@ -34,7 +43,7 @@ export function CollectionFilterChips({ documents }: { documents: Document[] }) 
         >
           <span className="collection-chip-name">{collection.name}</span>
           <span className="collection-chip-count">
-            {filterDocumentsByCollection(documents, collection.id, documentCollections).length}
+            {collectionCounts.get(collection.id) ?? 0}
           </span>
         </button>
       ))}

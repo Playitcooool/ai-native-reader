@@ -294,9 +294,14 @@ export class PageExtractionQueue {
     this.processing = true;
 
     while (!this.destroyed && this.queue.size > 0) {
-      // Sort by priority and pick the highest-priority page
-      const entries = Array.from(this.queue.entries()).sort(([, a], [, b]) => a - b);
-      const [pageNumber] = entries[0];
+      let pageNumber = 0;
+      let bestPriority = Infinity;
+      for (const [candidate, priority] of this.queue) {
+        if (priority < bestPriority) {
+          pageNumber = candidate;
+          bestPriority = priority;
+        }
+      }
       this.queue.delete(pageNumber);
 
       if (this.extracted.has(pageNumber)) continue;
