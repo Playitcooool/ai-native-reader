@@ -32,10 +32,11 @@ interface PdfViewerProps {
   documentId: string;
   onBackHome?: () => void;
   onOpenLibrary?: () => void;
+  onOpenContents?: () => void;
   onOpenAi?: (draft?: string) => void;
 }
 
-export default function PdfViewer({ documentId, onBackHome, onOpenLibrary, onOpenAi }: PdfViewerProps) {
+export default function PdfViewer({ documentId, onBackHome, onOpenLibrary, onOpenContents, onOpenAi }: PdfViewerProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectionText, setSelectionText] = useState("");
@@ -559,6 +560,10 @@ export default function PdfViewer({ documentId, onBackHome, onOpenLibrary, onOpe
         </button>
         <InkToolbarControls value={inkToolState} onChange={setInkToolState} />
         <span className="toolbar-center">
+          <button className="toolbar-text-button" onClick={onOpenContents} aria-label="Open contents">
+            <Icon name="contents" />
+            Contents
+          </button>
           <button className="toolbar-text-button" onClick={onOpenLibrary} aria-label="Open library">
             <Icon name="books" />
             Library

@@ -12,7 +12,8 @@ import { chapterToPercent } from "../features/epub/epubProgress";
 import { useToast } from "./Toast";
 import { CollectionAssignmentMenu, CollectionFilterChips } from "./CollectionControls";
 
-type Tab = "toc" | "notes" | "recent" | "settings";
+export type SidebarTab = "contents" | "library" | "notes" | "settings";
+type SidebarVariant = "library" | "reader";
 const NOTE_LIKE_ANNOTATION_TYPES = new Set(["note", "ai_note"]);
 
 // ── File tree types & helpers ──────────────────────────────────
@@ -173,12 +174,39 @@ function annotationsToMarkdown(annotations: Annotation[], docTitle: string | nul
 
 const TAB_STORAGE_KEY = "reader-left-sidebar-tab";
 
-export default function LeftSidebar() {
-  const [activeTab, setActiveTab] = useState<Tab>(() => {
-    const saved = localStorage.getItem(TAB_STORAGE_KEY);
-    return (saved === "recent" || saved === "toc" || saved === "notes" || saved === "settings") ? saved : "recent";
-  });
+function normalizeTab(value: string | null | undefined, tabs: SidebarTab[], fallback: SidebarTab): SidebarTab {
+  const tab = value === "recent" ? "library" : value === "toc" ? "contents" : value;
+  return tabs.includes(tab as SidebarTab) ? tab as SidebarTab : fallback;
+}
+
+export default function LeftSidebar({
+  variant = "library",
+  initialTab,
+}: {
+  variant?: SidebarVariant;
+  initialTab?: SidebarTab;
+}) {
+  const tabs: { id: SidebarTab; label: string }[] = variant === "reader"
+    ? [
+      { id: "contents", label: "Contents" },
+      { id: "library", label: "Library" },
+      { id: "notes", label: "Notes" },
+      { id: "settings", label: "Settings" },
+    ]
+    : [
+      { id: "library", label: "Recent" },
+      { id: "notes", label: "Notes" },
+      { id: "settings", label: "Settings" },
+    ];
+  const fallbackTab = variant === "reader" ? "contents" : "library";
+  const allowedTabs = tabs.map((tab) => tab.id);
+  const [activeTab, setActiveTab] = useState<SidebarTab>(() =>
+    normalizeTab(initialTab ?? localStorage.getItem(TAB_STORAGE_KEY), allowedTabs, fallbackTab)
+  );
   useEffect(() => { localStorage.setItem(TAB_STORAGE_KEY, activeTab); }, [activeTab]);
+  useEffect(() => {
+    setActiveTab(normalizeTab(initialTab ?? activeTab, allowedTabs, fallbackTab));
+  }, [initialTab, variant]);
   const {
     documents,
     documentCollections,
@@ -308,13 +336,6 @@ export default function LeftSidebar() {
     }
   };
 
-  const tabs: { id: Tab; label: string }[] = [
-    { id: "recent", label: "Recent" },
-    { id: "toc", label: "Contents" },
-    { id: "notes", label: "Notes" },
-    { id: "settings", label: "Settings" },
-  ];
-
   const handleTabKey = (e: React.KeyboardEvent, currentIdx: number) => {
     let nextIdx = currentIdx;
     if (e.key === "ArrowRight") nextIdx = (currentIdx + 1) % tabs.length;
@@ -346,7 +367,7 @@ export default function LeftSidebar() {
         {tabs.map((t) =>
           activeTab === t.id ? (
             <div key={t.id} role="tabpanel" id={`tabpanel-${t.id}`} aria-labelledby={`tab-${t.id}`}>
-              {t.id === "recent" && (
+              {t.id === "library" && (
                 <div>
                   {libraryFolder && (
                     <div className="recent-folder-bar">
@@ -410,11 +431,11 @@ export default function LeftSidebar() {
             )}
           </div>
             )}
-            {t.id === "toc" && (
+            {t.id === "contents" && (
               currentDocument ? (
                 <TocSidebar nodes={tocNodes} activeNodeId={activeTocNodeId} onNavigate={handleTocNavigate} />
               ) : (
-                <p style={{ color: "var(--text-muted)", fontSize: 14 }}>Open a PDF to see its table of contents.</p>
+                <p style={{ color: "var(--text-muted)", fontSize: 14 }}>Open a document to see its table of contents.</p>
               )
             )}
             {t.id === "notes" && (

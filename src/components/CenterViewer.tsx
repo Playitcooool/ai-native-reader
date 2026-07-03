@@ -55,10 +55,12 @@ function scheduleCoverRender(fn: () => Promise<void>) {
 export default function CenterViewer({
   onBackHome,
   onOpenLibrary,
+  onOpenContents,
   onOpenAi,
 }: {
   onBackHome?: () => void;
   onOpenLibrary?: () => void;
+  onOpenContents?: () => void;
   onOpenAi?: (draft?: string) => void;
 }) {
   const {
@@ -118,6 +120,7 @@ export default function CenterViewer({
               documentId={currentDocument.id}
               onBackHome={onBackHome}
               onOpenLibrary={onOpenLibrary}
+              onOpenContents={onOpenContents}
               onOpenAi={onOpenAi}
             />
           </Suspense>
@@ -127,6 +130,7 @@ export default function CenterViewer({
             documentId={currentDocument.id}
             onBackHome={onBackHome}
             onOpenLibrary={onOpenLibrary}
+            onOpenContents={onOpenContents}
             onOpenAi={onOpenAi}
           />
         )}

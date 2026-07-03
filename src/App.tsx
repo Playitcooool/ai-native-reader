@@ -1,5 +1,6 @@
 import "./App.css";
 import LeftSidebar from "./components/LeftSidebar";
+import type { SidebarTab } from "./components/LeftSidebar";
 import { ToastProvider, useToast } from "./components/Toast";
 import { useSettingsStore } from "./stores/settingsStore";
 import { useDocumentStore } from "./stores/documentStore";
@@ -29,6 +30,7 @@ function App() {
   const currentDocument = useDocumentStore((s) => s.currentDocument);
   const theme = useSettingsStore((s) => s.theme);
   const [leftOpen, setLeftOpen] = useState(false);
+  const [readerDrawerTab, setReaderDrawerTab] = useState<SidebarTab>("library");
   const [aiOpen, setAiOpen] = useState(false);
   const [aiInputDraft, setAiInputDraft] = useState<string>();
 
@@ -45,6 +47,13 @@ function App() {
   }, [setCurrentDocument]);
 
   const openLibraryPanel = useCallback(() => {
+    setReaderDrawerTab("library");
+    setAiOpen(false);
+    setLeftOpen(true);
+  }, []);
+
+  const openContentsPanel = useCallback(() => {
+    setReaderDrawerTab("contents");
     setAiOpen(false);
     setLeftOpen(true);
   }, []);
@@ -143,19 +152,19 @@ function App() {
       <div className={currentDocument ? "reader-shell" : "app-layout library-shell"}>
         {!currentDocument && (
           <div className="sidebar-left">
-            <LeftSidebar />
+            <LeftSidebar variant="library" />
           </div>
         )}
         <div className="center-viewer">
           <Suspense fallback={<div style={{ padding: 24, textAlign: "center", color: "var(--text-muted)", fontSize: 13 }}>Loading…</div>}>
-            <CenterViewer onBackHome={goHome} onOpenLibrary={openLibraryPanel} onOpenAi={openAiPanel} />
+            <CenterViewer onBackHome={goHome} onOpenLibrary={openLibraryPanel} onOpenContents={openContentsPanel} onOpenAi={openAiPanel} />
           </Suspense>
         </div>
         {leftOpen && (
           <div className="drawer-backdrop" onMouseDown={() => setLeftOpen(false)}>
             <aside className="reader-drawer" onMouseDown={(e) => e.stopPropagation()}>
               <button aria-label="Close drawer" className="sheet-close" onClick={() => setLeftOpen(false)}>×</button>
-              <LeftSidebar />
+              <LeftSidebar variant="reader" initialTab={readerDrawerTab} />
             </aside>
           </div>
         )}

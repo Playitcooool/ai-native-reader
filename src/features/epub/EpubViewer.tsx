@@ -18,12 +18,13 @@ interface EpubViewerProps {
   documentId: string;
   onBackHome?: () => void;
   onOpenLibrary?: () => void;
+  onOpenContents?: () => void;
   onOpenAi?: (draft?: string) => void;
 }
 
 type RenderedAnnotation = { cfi: string; type: "highlight" | "underline" };
 
-export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOpenAi }: EpubViewerProps) {
+export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOpenContents, onOpenAi }: EpubViewerProps) {
   const frameRef = useRef<HTMLDivElement | null>(null);
   const bookRef = useRef<Book | null>(null);
   const renditionRef = useRef<Rendition | null>(null);
@@ -382,6 +383,7 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
         </button>
         <InkToolbarControls value={inkToolState} onChange={setInkToolState} />
         <span className="toolbar-center">
+          <button className="toolbar-text-button" onClick={onOpenContents} aria-label="Open contents"><Icon name="contents" />Contents</button>
           <button className="toolbar-text-button" onClick={onOpenLibrary} aria-label="Open library"><Icon name="books" />Library</button>
           <button className="toolbar-text-button" onClick={() => onOpenAi?.()} aria-label="Open AI assistant"><Icon name="ask" />Ask</button>
         </span>
