@@ -6,6 +6,7 @@ import { useUndoStore } from "../stores/undoStore";
 import { inferAskScope, scopeFromTocNode } from "../features/ai/promptScope";
 import { draftFromSelection, shouldFollowScroll } from "../features/ai/aiPanelHelpers";
 import { useToast } from "./Toast";
+import { Icon } from "./Icons";
 const AiMarkdown = lazy(() => import("./AiMarkdown"));
 
 interface AiSidebarProps {
@@ -278,9 +279,11 @@ export default function AiSidebar({ draftInput, onDraftConsumed }: AiSidebarProp
     <div className="sidebar-inner">
       <div className="ai-toolbar">
         <span className="ai-title">AI</span>
-        <button className="ai-primary-button" onClick={handleSummarizePage} disabled={isGenerating}>Page</button>
-        <button className="ai-ghost-button" onClick={handleSummarizeDocument} disabled={isGenerating || !currentDocument.page_count}>Paper</button>
-        <button className={showRange ? "ai-primary-button" : "ai-ghost-button"} onClick={toggleRange}>Range</button>
+        <div className="ai-summary-tabs" role="group" aria-label="Summarize">
+          <button className="active" onClick={handleSummarizePage} disabled={isGenerating}>Page</button>
+          <button onClick={handleSummarizeDocument} disabled={isGenerating || !currentDocument.page_count}>Paper</button>
+          <button className={showRange ? "active" : ""} onClick={toggleRange}>Range</button>
+        </div>
         <select
           className="ai-session-select"
           value={sessionId ?? ""}
@@ -296,7 +299,7 @@ export default function AiSidebar({ draftInput, onDraftConsumed }: AiSidebarProp
             <option key={session.id} value={session.id}>{sessionLabel(session)}</option>
           ))}
         </select>
-        <button className="ai-ghost-button" onClick={startNewSession} disabled={isGenerating}>New</button>
+        <button className="ai-icon-button" onClick={startNewSession} disabled={isGenerating} aria-label="New chat" title="New chat"><Icon name="plus" /></button>
         {selectedText && (
           <button className="ai-ghost-button" onMouseDown={(e) => e.preventDefault()} onClick={() => setInput(draftFromSelection(selectedText))} disabled={isGenerating}>
             Ask Selection

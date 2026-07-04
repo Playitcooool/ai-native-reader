@@ -579,6 +579,8 @@
 
 .ai-primary-button,
 .ai-ghost-button,
+.ai-summary-tabs button,
+.ai-icon-button,
 .ai-session-select,
 .ai-thinking button,
 .ai-stream-header button,
@@ -599,6 +601,9 @@
 }
 
 .ai-ghost-button,
+.ai-summary-tabs,
+.ai-summary-tabs button,
+.ai-icon-button,
 .ai-session-select,
 .ai-thinking button,
 .ai-stream-header button,
@@ -609,12 +614,44 @@
 
 .ai-primary-button:disabled,
 .ai-ghost-button:disabled,
+.ai-summary-tabs button:disabled,
+.ai-icon-button:disabled,
 .ai-session-select:disabled,
 .ai-thinking button:disabled,
 .ai-stream-header button:disabled,
 .ai-message-actions button:disabled {
   cursor: default;
   opacity: 0.55;
+}
+
+.ai-summary-tabs {
+  display: inline-flex;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+}
+
+.ai-summary-tabs button {
+  border: 0;
+  border-radius: 0;
+}
+
+.ai-summary-tabs button + button {
+  border-left: 1px solid var(--border-color);
+}
+
+.ai-summary-tabs button.active {
+  background: var(--accent-color);
+  color: #fff;
+}
+
+.ai-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
 }
 
 .ai-session-select {
