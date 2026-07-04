@@ -31,6 +31,7 @@ const providerDefaults: Record<string, { baseUrl: string; model: string; apiKeyP
 
 export default function SettingsPanel() {
   const { settings, addSetting, updateSetting, themePreference, setThemePreference } = useSettingsStore();
+  const [section, setSection] = useState<"appearance" | "provider">("appearance");
   const [baseUrl, setBaseUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [model, setModel] = useState("");
@@ -141,122 +142,109 @@ export default function SettingsPanel() {
   ];
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      <h3 style={{ fontSize: 14, fontWeight: 600 }}>Appearance</h3>
-      <div
-        role="group"
-        aria-label="Theme"
-        style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", border: "1px solid var(--border-color)", borderRadius: 4, overflow: "hidden" }}
-      >
-        {themeOptions.map((option) => (
-          <button
-            key={option.value}
-            type="button"
-            onClick={() => setThemePreference(option.value)}
-            aria-pressed={themePreference === option.value}
-            style={{
-              padding: "6px 8px",
-              border: 0,
-              borderLeft: option.value === "system" ? 0 : "1px solid var(--border-color)",
-              background: themePreference === option.value ? "var(--accent-color)" : "var(--bg-primary)",
-              color: themePreference === option.value ? "#fff" : "var(--text-primary)",
-              fontSize: 12,
-            }}
-          >
-            {option.label}
-          </button>
-        ))}
-      </div>
-
-      <h3 style={{ fontSize: 14, fontWeight: 600 }}>AI Provider</h3>
-
-      <label htmlFor="provider-type" style={{ fontSize: 12, color: "var(--text-secondary)" }}>Provider Type</label>
-      <select id="provider-type"
-        value={providerType}
-        onChange={(e) => handleProviderTypeChange(e.target.value)}
-        style={{ padding: "6px 8px", border: "1px solid var(--border-color)", borderRadius: 4, fontSize: 13, background: "var(--bg-primary)" }}
-      >
-        <option value="openai_compatible">OpenAI Compatible</option>
-        <option value="anthropic">Anthropic</option>
-        <option value="lm_studio">LM Studio</option>
-        <option value="ollama">Ollama</option>
-      </select>
-
-      <label htmlFor="base-url" style={{ fontSize: 12, color: "var(--text-secondary)" }}>Base URL</label>
-      <input id="base-url" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder={defaults.baseUrl}
-        style={{ padding: "6px 8px", border: "1px solid var(--border-color)", borderRadius: 4, fontSize: 13, background: "var(--bg-primary)", color: "var(--text-primary)" }} />
-
-      <label htmlFor="api-key" style={{ fontSize: 12, color: "var(--text-secondary)" }}>API Key</label>
-      <input id="api-key" type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={defaults.apiKeyPlaceholder}
-        style={{ padding: "6px 8px", border: "1px solid var(--border-color)", borderRadius: 4, fontSize: 13, background: "var(--bg-primary)", color: "var(--text-primary)" }} />
-
-      <label htmlFor="model" style={{ fontSize: 12, color: "var(--text-secondary)" }}>Model</label>
-      <input id="model" value={model} onChange={(e) => setModel(e.target.value)} placeholder={defaults.modelPlaceholder}
-        style={{ padding: "6px 8px", border: "1px solid var(--border-color)", borderRadius: 4, fontSize: 13, background: "var(--bg-primary)", color: "var(--text-primary)" }} />
-
-      <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 6, color: "var(--text-secondary)", cursor: "pointer" }}>
-        <input type="checkbox" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} />
-        Use as default provider (for Explain, Summarize, Q&A)
-      </label>
-
-      <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 6, color: "var(--text-secondary)", cursor: "pointer" }}>
-        <input type="checkbox" checked={isTranslation} onChange={(e) => setIsTranslation(e.target.checked)} />
-        Use as translation provider
-      </label>
-
-      <div style={{ display: "flex", gap: 8 }}>
-        <button onClick={handleSave} disabled={saving} title="Save"
-          style={{ padding: "6px 12px", background: "var(--accent-color)", color: "#fff", border: "none", borderRadius: 4, fontSize: 15, lineHeight: 1, cursor: "pointer" }}>
-          {saving ? "⏳" : "💾"}
+    <div className="settings-panel">
+      <nav className="settings-section-list" aria-label="Settings sections">
+        <button className={section === "appearance" ? "active" : ""} onClick={() => setSection("appearance")}>
+          Appearance
         </button>
-      </div>
+        <button className={section === "provider" ? "active" : ""} onClick={() => setSection("provider")}>
+          AI Provider
+        </button>
+      </nav>
+      <div className="settings-detail-pane">
+        <section hidden={section !== "appearance"}>
+          <h3>Appearance</h3>
+          <div className="settings-theme-group" role="group" aria-label="Theme">
+            {themeOptions.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => setThemePreference(option.value)}
+                aria-pressed={themePreference === option.value}
+                className={themePreference === option.value ? "active" : ""}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </section>
 
-      {status && (
-        <p style={{ fontSize: 12, color: status.ok ? "var(--success-color)" : "var(--danger-color)" }}>
-          {status.msg}
-        </p>
-      )}
+        <section className="settings-provider-section" hidden={section !== "provider"}>
+          <h3>AI Provider</h3>
+          <label htmlFor="provider-type">Provider Type</label>
+          <select id="provider-type"
+            value={providerType}
+            onChange={(e) => handleProviderTypeChange(e.target.value)}
+          >
+            <option value="openai_compatible">OpenAI Compatible</option>
+            <option value="anthropic">Anthropic</option>
+            <option value="lm_studio">LM Studio</option>
+            <option value="ollama">Ollama</option>
+          </select>
 
-      {settings.length > 0 && (
-        <div style={{ marginTop: 8 }}>
-          <p style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Saved Providers</p>
-          {settings.map((s) => (
-            <div
-              key={s.id}
-              onClick={() => selectProvider(s.id)}
-              style={{
-                fontSize: 12, padding: "8px", background: editingId === s.id ? "var(--accent-color)" : "var(--bg-tertiary)",
-                borderRadius: 4, marginBottom: 4, cursor: "pointer",
-                color: editingId === s.id ? "#fff" : "inherit",
-              }}
-            >
-              <div style={{ fontWeight: 500 }}>{s.model}</div>
-              <div style={{ fontSize: 11, opacity: 0.8 }}>{s.base_url ?? "N/A"}</div>
-              <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
-                {s.is_default && (
-                  <span style={{ fontSize: 10, background: "var(--accent-color)", color: "#fff", padding: "1px 5px", borderRadius: 3 }}>
-                    Default
+          <label htmlFor="base-url">Base URL</label>
+          <input id="base-url" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder={defaults.baseUrl} />
+
+          <label htmlFor="api-key">API Key</label>
+          <input id="api-key" type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={defaults.apiKeyPlaceholder} />
+
+          <label htmlFor="model">Model</label>
+          <input id="model" value={model} onChange={(e) => setModel(e.target.value)} placeholder={defaults.modelPlaceholder} />
+
+          <label className="settings-checkbox">
+            <input type="checkbox" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} />
+            Use as default provider (for Explain, Summarize, Q&A)
+          </label>
+
+          <label className="settings-checkbox">
+            <input type="checkbox" checked={isTranslation} onChange={(e) => setIsTranslation(e.target.checked)} />
+            Use as translation provider
+          </label>
+
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className="settings-primary-button" onClick={handleSave} disabled={saving} title="Save">
+              {saving ? "Saving..." : "Save"}
+            </button>
+          </div>
+
+          {status && (
+            <p className={status.ok ? "settings-status-ok" : "settings-status-error"}>
+              {status.msg}
+            </p>
+          )}
+
+          {settings.length > 0 && (
+            <div className="settings-saved-providers">
+              <p>Saved Providers</p>
+              {settings.map((s) => (
+                <div
+                  key={s.id}
+                  onClick={() => selectProvider(s.id)}
+                  className={editingId === s.id ? "active" : ""}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      selectProvider(s.id);
+                    }
+                  }}
+                >
+                  <span className="settings-provider-model">{s.model}</span>
+                  <span className="settings-provider-url">{s.base_url ?? "N/A"}</span>
+                  <span className="settings-provider-badges">
+                    {s.is_default && <span>Default</span>}
+                    {s.is_translation && <span>Translate</span>}
+                    <button onClick={(e) => { e.stopPropagation(); handleTest(s.id); }} disabled={testing} title="Test connection">
+                      {testing ? "Testing..." : "Test"}
+                    </button>
                   </span>
-                )}
-                {s.is_translation && (
-                  <span style={{ fontSize: 10, background: "var(--success-color)", color: "#fff", padding: "1px 5px", borderRadius: 3 }}>
-                    Translate
-                  </span>
-                )}
-                <button onClick={(e) => { e.stopPropagation(); handleTest(s.id); }} disabled={testing} title="Test connection"
-                  style={{
-                    padding: "2px 6px", background: "transparent",
-                    color: editingId === s.id ? "#fff" : "var(--accent-color)",
-                    border: `1px solid ${editingId === s.id ? "#fff" : "var(--accent-color)"}`,
-                    borderRadius: 3, fontSize: 13, lineHeight: 1, cursor: "pointer",
-                  }}>
-                  {testing ? "⏳" : "▶"}
-                </button>
-              </div>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
-      )}
+          )}
+        </section>
+      </div>
     </div>
   );
 }

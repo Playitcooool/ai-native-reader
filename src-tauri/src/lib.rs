@@ -24,6 +24,10 @@ fn handle_menu_event(app: &tauri::AppHandle, event: tauri::menu::MenuEvent) {
         if let Some(window) = app.get_webview_window("main") {
             window.emit("menu-open-folder", ()).ok();
         }
+    } else if event.id() == "settings" {
+        if let Some(window) = app.get_webview_window("main") {
+            window.emit("menu-open-settings", ()).ok();
+        }
     }
 }
 
@@ -71,8 +75,12 @@ pub fn run() {
             let open_folder = MenuItemBuilder::with_id("open_folder", "Open Folder…")
                 .accelerator("CmdOrCtrl+Shift+O")
                 .build(app)?;
+            let settings = MenuItemBuilder::with_id("settings", "Settings…")
+                .accelerator("CmdOrCtrl+,")
+                .build(app)?;
             let app_menu = SubmenuBuilder::new(app, "RustyBooks")
                 .about(None)
+                .item(&settings)
                 .separator()
                 .services()
                 .separator()

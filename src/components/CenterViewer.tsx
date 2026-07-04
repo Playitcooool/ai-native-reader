@@ -6,6 +6,8 @@ import PdfViewer from "./PdfViewer";
 const EpubViewer = lazy(() => import("../features/epub/EpubViewer"));
 import { useToast } from "./Toast";
 import { CollectionAssignmentMenu, CollectionFilterChips } from "./CollectionControls";
+import { useSettingsStore } from "../stores/settingsStore";
+import { Icon } from "./Icons";
 
 function formatTime(totalSeconds: number): string {
   if (totalSeconds < 60) return `${totalSeconds}s`;
@@ -74,6 +76,7 @@ export default function CenterViewer({
     dailyStats,
     loadReadingStats,
   } = useDocumentStore();
+  const openSettings = useSettingsStore((s) => s.openSettings);
   const { addToast } = useToast();
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; doc: Document } | null>(null);
   const ctxRef = useRef<HTMLDivElement>(null);
@@ -147,6 +150,9 @@ export default function CenterViewer({
           <p>{documents.length ? "Pick up where you left off." : "Add a document to begin."}</p>
         </div>
         <div className="library-actions">
+          <button className="icon-only-action" onClick={openSettings} aria-label="Open settings" title="Settings">
+            <Icon name="gear" />
+          </button>
           <button className="primary-action" onClick={() => handleOpenDocument().catch(() => addToast({ type: "error", message: "Failed to open document." }))}>
             Open Document
           </button>

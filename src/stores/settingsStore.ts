@@ -33,6 +33,9 @@ interface SettingsState {
   setSettings: (settings: ProviderSettings[]) => void;
   addSetting: (setting: ProviderSettings) => void;
   updateSetting: (id: string, setting: ProviderSettings) => void;
+  openSettings: () => void;
+  closeSettings: () => void;
+  setShowSettings: (show: boolean) => void;
   toggleSettings: () => void;
   setTheme: (theme: Theme) => void;
   setThemePreference: (preference: ThemePreference) => void;
@@ -102,6 +105,9 @@ export const useSettingsStore = create<SettingsState>((set) => ({
     set((state) => ({
       settings: state.settings.map((s) => (s.id === id ? updated : s)),
     })),
+  openSettings: () => set({ showSettings: true }),
+  closeSettings: () => set({ showSettings: false }),
+  setShowSettings: (show) => set({ showSettings: show }),
   toggleSettings: () =>
     set((state) => ({ showSettings: !state.showSettings })),
   setTheme: (theme) => {

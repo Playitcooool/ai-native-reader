@@ -2,6 +2,7 @@ import "./App.css";
 import LeftSidebar from "./components/LeftSidebar";
 import type { SidebarTab } from "./components/LeftSidebar";
 import { ToastProvider, useToast } from "./components/Toast";
+import SettingsDialog from "./components/SettingsDialog";
 import { useSettingsStore } from "./stores/settingsStore";
 import { useDocumentStore } from "./stores/documentStore";
 import { Suspense, lazy, startTransition, useCallback, useEffect, useState } from "react";
@@ -19,6 +20,9 @@ import { isTauriRuntime } from "./tauriRuntime";
 function App() {
   const { addToast } = useToast();
   const setSettings = useSettingsStore((s) => s.setSettings);
+  const showSettings = useSettingsStore((s) => s.showSettings);
+  const openSettings = useSettingsStore((s) => s.openSettings);
+  const closeSettings = useSettingsStore((s) => s.closeSettings);
   const handleOpenDocument = useDocumentStore((s) => s.handleOpenDocument);
   const handleOpenFolder = useDocumentStore((s) => s.handleOpenFolder);
   const undoLast = useUndoStore((s) => s.undoLast);
@@ -138,6 +142,12 @@ function App() {
     return () => { unlisten.then((fn) => fn()); };
   }, [handleOpenFolder, addToast]);
 
+  useEffect(() => {
+    if (!isTauriRuntime()) return;
+    const unlisten = listen("menu-open-settings", openSettings);
+    return () => { unlisten.then((fn) => fn()); };
+  }, [openSettings]);
+
   // Listen for library folder updates (new PDF auto-imported by watcher)
   useEffect(() => {
     if (!isTauriRuntime()) return;
@@ -179,6 +189,7 @@ function App() {
             </Suspense>
           </aside>
         )}
+        {showSettings && <SettingsDialog onClose={closeSettings} />}
       </div>
     </ToastProvider>
   );

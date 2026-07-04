@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 import { writeTextFile } from "@tauri-apps/plugin-fs";
-import SettingsPanel from "./SettingsPanel";
 import { documentDisplayTitle, filterDocumentsByCollection, useDocumentStore } from "../stores/documentStore";
 import { useNotesStore } from "../stores/notesStore";
 import type { Annotation } from "../stores/notesStore";
@@ -13,7 +12,7 @@ import { buildLibraryTree, type LibraryTreeNode } from "../features/library/libr
 import { useToast } from "./Toast";
 import { CollectionAssignmentMenu, CollectionFilterChips } from "./CollectionControls";
 
-export type SidebarTab = "contents" | "library" | "notes" | "settings";
+export type SidebarTab = "contents" | "library" | "notes";
 type SidebarVariant = "library" | "reader";
 const NOTE_LIKE_ANNOTATION_TYPES = new Set(["note", "ai_note"]);
 
@@ -122,12 +121,10 @@ export default function LeftSidebar({
       { id: "contents", label: "Contents" },
       { id: "library", label: "Library" },
       { id: "notes", label: "Notes" },
-      { id: "settings", label: "Settings" },
     ]
     : [
       { id: "library", label: "Library" },
       { id: "notes", label: "Notes" },
-      { id: "settings", label: "Settings" },
     ];
   const fallbackTab = variant === "reader" ? "contents" : "library";
   const allowedTabs = tabs.map((tab) => tab.id);
@@ -413,7 +410,6 @@ export default function LeftSidebar({
                 <p style={{ color: "var(--text-muted)", fontSize: 14 }}>Open a PDF to view notes.</p>
               )
             )}
-            {t.id === "settings" && <SettingsPanel />}
           </div>
         ) : null
       )}
