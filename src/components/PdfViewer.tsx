@@ -639,7 +639,7 @@ export default function PdfViewer({ documentId, onBackHome, onOpenLibrary, onOpe
             )}
           </div>
         ) : (
-          <div style={{ height: totalHeight, position: "relative", width: "100%" }}>
+          <div style={{ height: totalHeight, position: "relative", width: "100%", minWidth: pageWidthAtZoom }}>
             {pageNumbers.map((pageNum) => {
               const idx = pageNum - 1;
               return (

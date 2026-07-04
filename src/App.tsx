@@ -149,7 +149,7 @@ function App() {
 
   return (
     <ToastProvider>
-      <div className={currentDocument ? "reader-shell" : "app-layout library-shell"}>
+      <div className={currentDocument ? `reader-shell${aiOpen ? " ai-open" : ""}` : "app-layout library-shell"}>
         {!currentDocument && (
           <div className="sidebar-left">
             <LeftSidebar variant="library" />
@@ -168,18 +168,16 @@ function App() {
             </aside>
           </div>
         )}
-        {aiOpen && (
-          <div className="ai-floating-layer">
-            <aside className="ai-sheet" role="complementary" aria-label="AI reading companion">
-              <button aria-label="Close AI" className="sheet-close" onClick={() => setAiOpen(false)}>×</button>
+        {aiOpen && currentDocument && (
+          <aside className="ai-sheet" role="complementary" aria-label="AI reading companion">
+            <button aria-label="Close AI" className="sheet-close" onClick={() => setAiOpen(false)}>×</button>
             <Suspense fallback={<div style={{ padding: 24, textAlign: "center", color: "var(--text-muted)", fontSize: 13 }}>Loading…</div>}>
               <AiSidebar
                 draftInput={aiInputDraft}
                 onDraftConsumed={() => setAiInputDraft(undefined)}
               />
             </Suspense>
-            </aside>
-          </div>
+          </aside>
         )}
       </div>
     </ToastProvider>
