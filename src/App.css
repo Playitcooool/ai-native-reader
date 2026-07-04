@@ -573,6 +573,10 @@
   backdrop-filter: blur(18px);
 }
 
+.ai-toolbar {
+  padding-right: 46px;
+}
+
 .ai-title {
   margin-right: auto;
   color: var(--text-primary);
