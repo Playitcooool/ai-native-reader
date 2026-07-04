@@ -23,43 +23,43 @@ function doc(id: string, filePath: string, title: string | null = null): Documen
 }
 
 describe("buildLibraryTree", () => {
-  it("builds nested folders from document paths", () => {
+  it("uses the collection name as the visible root", () => {
     const tree = buildLibraryTree([
       doc("a", "/books/fantasy/dune.pdf"),
       doc("b", "/books/history/rome.pdf"),
-    ], null);
+    ], "Favorites");
 
-    expect(tree.map((node) => node.name)).toEqual(["fantasy", "history"]);
-    expect(tree[0].children[0].name).toBe("dune.pdf");
-    expect(tree[1].children[0].document?.id).toBe("b");
+    expect(tree).toHaveLength(1);
+    expect(tree[0].name).toBe("Favorites");
+    expect(tree[0].isDir).toBe(true);
   });
 
-  it("uses libraryFolder as the root", () => {
+  it("shows filenames instead of true file paths", () => {
     const tree = buildLibraryTree([
       doc("a", "/library/sci-fi/dune.pdf"),
-    ], "/library");
+    ], "All books");
 
-    expect(tree.map((node) => node.name)).toEqual(["sci-fi"]);
     expect(tree[0].children[0].name).toBe("dune.pdf");
   });
 
-  it("groups out-of-folder documents under Other", () => {
-    const tree = buildLibraryTree([
-      doc("a", "/library/dune.pdf"),
-      doc("b", "/downloads/essay.pdf"),
-    ], "/library");
+  it("falls back to the path basename when original filename is missing", () => {
+    const item = doc("a", "/downloads/essay.pdf");
+    item.original_filename = "";
 
-    expect(tree.map((node) => node.name)).toEqual(["Other", "dune.pdf"]);
+    const tree = buildLibraryTree([
+      item,
+    ], "Recent");
+
     expect(tree[0].children[0].name).toBe("essay.pdf");
   });
 
-  it("sorts folders before files alphabetically", () => {
+  it("sorts files alphabetically", () => {
     const tree = buildLibraryTree([
       doc("z", "/library/zeta.pdf"),
       doc("b", "/library/beta.pdf"),
-      doc("a", "/library/alpha/a.pdf"),
-    ], "/library");
+      doc("a", "/library/alpha.pdf"),
+    ], "All books");
 
-    expect(tree.map((node) => node.name)).toEqual(["alpha", "beta.pdf", "zeta.pdf"]);
+    expect(tree[0].children.map((node) => node.name)).toEqual(["alpha.pdf", "beta.pdf", "zeta.pdf"]);
   });
 });

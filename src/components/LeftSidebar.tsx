@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 import { writeTextFile } from "@tauri-apps/plugin-fs";
-import { documentDisplayTitle, filterDocumentsByCollection, useDocumentStore } from "../stores/documentStore";
+import { documentDisplayTitle, filterDocumentsByCollection, RECENT_COLLECTION_ID, useDocumentStore } from "../stores/documentStore";
 import { useNotesStore } from "../stores/notesStore";
 import type { Annotation } from "../stores/notesStore";
 import type { Document } from "../stores/documentStore";
@@ -137,6 +137,7 @@ export default function LeftSidebar({
   }, [initialTab, variant]);
   const {
     documents,
+    collections,
     documentCollections,
     selectedCollectionId,
     currentDocument,
@@ -157,9 +158,14 @@ export default function LeftSidebar({
     () => filterDocumentsByCollection(documents, selectedCollectionId, documentCollections),
     [documents, selectedCollectionId, documentCollections],
   );
+  const collectionName = useMemo(() => {
+    if (selectedCollectionId === RECENT_COLLECTION_ID) return "Recent";
+    if (selectedCollectionId === null) return "All books";
+    return collections.find((collection) => collection.id === selectedCollectionId)?.name ?? "Collection";
+  }, [collections, selectedCollectionId]);
   const fileTree = useMemo(
-    () => buildLibraryTree(visibleDocuments, libraryFolder),
-    [libraryFolder, visibleDocuments],
+    () => buildLibraryTree(visibleDocuments, collectionName),
+    [collectionName, visibleDocuments],
   );
 
   useEffect(() => {
