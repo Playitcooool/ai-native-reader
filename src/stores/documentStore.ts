@@ -39,6 +39,10 @@ export function documentDisplayTitle(doc: Pick<Document, "title" | "original_fil
   return doc.title?.trim() || doc.original_filename?.trim() || doc.file_path.split("/").pop() || "Untitled";
 }
 
+export function documentDisplayAuthor(doc: Pick<Document, "author">): string {
+  return doc.author?.trim() ?? "";
+}
+
 export function collectionIdsForDocument(memberships: DocumentCollection[], documentId: string): Set<string> {
   return new Set(memberships.filter((m) => m.document_id === documentId).map((m) => m.collection_id));
 }

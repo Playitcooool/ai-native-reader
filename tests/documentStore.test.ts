@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   collectionIdsForDocument,
+  documentDisplayAuthor,
   documentDisplayTitle,
   filterDocumentsByCollection,
   RECENT_COLLECTION_ID,
@@ -14,6 +15,11 @@ describe("documentDisplayTitle", () => {
       original_filename: "book.pdf",
       file_path: "/tmp/book.pdf",
     })).toBe("book.pdf");
+  });
+
+  it("trims authors for library subtitles", () => {
+    expect(documentDisplayAuthor({ author: "  Ada Lovelace  " })).toBe("Ada Lovelace");
+    expect(documentDisplayAuthor({ author: null })).toBe("");
   });
 });
 

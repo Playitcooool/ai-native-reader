@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 import { writeTextFile } from "@tauri-apps/plugin-fs";
-import { documentDisplayTitle, filterDocumentsByCollection, RECENT_COLLECTION_ID, useDocumentStore } from "../stores/documentStore";
+import { documentDisplayAuthor, documentDisplayTitle, filterDocumentsByCollection, RECENT_COLLECTION_ID, useDocumentStore } from "../stores/documentStore";
 import { useNotesStore } from "../stores/notesStore";
 import type { Annotation } from "../stores/notesStore";
 import type { Document } from "../stores/documentStore";
@@ -44,19 +44,18 @@ function TreeNodeItem({ node, depth, currentId, onSelect, onContextMenu }: {
   if (!node.isDir) {
     const isActive = node.document?.id === currentId;
     const docTitle = node.document ? documentDisplayTitle(node.document) : "";
-    const meta = node.document
-      ? [node.document.title?.trim() && node.document.title.trim() !== node.name ? node.document.title.trim() : null, node.document.author?.trim()].filter(Boolean).join(" · ")
-      : "";
+    const author = node.document ? documentDisplayAuthor(node.document) : "";
+    const tooltip = [docTitle, author].filter(Boolean).join(" · ");
     return (
       <button
         onClick={() => node.document && onSelect(node.document)}
         onContextMenu={(e) => node.document && onContextMenu?.(e, node.document)}
         className={`tree-leaf ${isActive ? "active" : ""}`}
         style={{ paddingLeft: 10 + depth * 16 }}
-        title={docTitle}
+        title={tooltip}
       >
-        <span className="tree-file-name">{node.name}</span>
-        {meta && <span className="tree-file-meta">{meta}</span>}
+        <span className="tree-file-name">{docTitle}</span>
+        {author && <span className="tree-file-meta">{author}</span>}
       </button>
     );
   }
