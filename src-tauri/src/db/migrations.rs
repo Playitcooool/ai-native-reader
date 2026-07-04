@@ -31,7 +31,8 @@ fn run_migrations(conn: &Connection) -> Result<()> {
             parse_status TEXT DEFAULT 'pending',
             has_native_toc INTEGER DEFAULT 0,
             document_type TEXT DEFAULT 'pdf',
-            author TEXT
+            author TEXT,
+            access_bookmark BLOB
         );
 
         CREATE TABLE IF NOT EXISTS pages (
@@ -168,7 +169,8 @@ fn run_migrations(conn: &Connection) -> Result<()> {
 
         CREATE TABLE IF NOT EXISTS library_folder (
             id INTEGER PRIMARY KEY CHECK(id = 1),
-            folder_path TEXT NOT NULL
+            folder_path TEXT NOT NULL,
+            access_bookmark BLOB
         );
 
         CREATE TABLE IF NOT EXISTS provider_settings (
@@ -213,6 +215,11 @@ fn run_migrations(conn: &Connection) -> Result<()> {
         "ALTER TABLE documents ADD COLUMN author TEXT DEFAULT NULL",
         [],
     );
+    let _ = conn.execute("ALTER TABLE documents ADD COLUMN access_bookmark BLOB", []);
+    let _ = conn.execute(
+        "ALTER TABLE library_folder ADD COLUMN access_bookmark BLOB",
+        [],
+    );
     let _ = conn.execute(
         "ALTER TABLE provider_settings ADD COLUMN is_translation INTEGER DEFAULT 0",
         [],
@@ -251,6 +258,41 @@ mod tests {
                 .unwrap();
             assert_eq!(exists, 1, "{name}");
         }
+    }
+
+    #[test]
+    fn old_rows_without_bookmarks_still_load() {
+        let conn = Connection::open_in_memory().unwrap();
+        run_migrations(&conn).unwrap();
+        conn.execute(
+            "INSERT INTO documents (id, title, original_filename, file_path, created_at, updated_at)
+             VALUES ('old-doc', 'Book', 'book.pdf', '/tmp/book.pdf', 'now', 'now')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO library_folder (id, folder_path) VALUES (1, '/tmp')",
+            [],
+        )
+        .unwrap();
+
+        let doc_bookmark: Option<Vec<u8>> = conn
+            .query_row(
+                "SELECT access_bookmark FROM documents WHERE id = 'old-doc'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let folder_bookmark: Option<Vec<u8>> = conn
+            .query_row(
+                "SELECT access_bookmark FROM library_folder WHERE id = 1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+
+        assert!(doc_bookmark.is_none());
+        assert!(folder_bookmark.is_none());
     }
 
     #[test]

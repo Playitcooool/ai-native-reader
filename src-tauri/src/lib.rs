@@ -2,6 +2,7 @@ pub mod ai;
 pub mod commands;
 pub mod db;
 pub mod epub;
+pub mod file_access;
 pub mod ocr;
 pub mod pdf;
 

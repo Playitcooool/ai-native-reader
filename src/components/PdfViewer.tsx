@@ -5,7 +5,7 @@ import "../pdfjs";
 import { useDocumentStore } from "../stores/documentStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import { setOcrPdfRef } from "../stores/aiStore";
-import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
 import { extractToc, type TocNodeInput } from "../features/toc/tocTree";
 import {
   PageExtractionQueue,
@@ -23,7 +23,6 @@ import { useToast } from "./Toast";
 import ShortcutsModal from "./ShortcutsModal";
 import { Icon } from "./Icons";
 import { draftFromSelection } from "../features/ai/aiPanelHelpers";
-import { isTauriRuntime } from "../tauriRuntime";
 import type { Annotation } from "../stores/notesStore";
 
 const initialZoomKey = (documentId: string) => `rustybooks:pdf-initial-zoom:${documentId}`;
@@ -203,15 +202,7 @@ export default function PdfViewer({ documentId, onBackHome, onOpenLibrary, onOpe
           task.onProgress = onProgress;
           return task.promise;
         };
-        const filePath = currentDocument?.file_path;
-        let pdf: PDFDocumentProxy;
-        if (isTauriRuntime() && filePath) {
-          const task = pdfjsLib.getDocument({ url: convertFileSrc(filePath) });
-          task.onProgress = onProgress;
-          pdf = await task.promise.catch(loadFromBytes);
-        } else {
-          pdf = await loadFromBytes();
-        }
+        const pdf = await loadFromBytes();
         if (destroyed) { pdf.destroy(); return; }
         pdfRef.current = pdf;
         setOcrPdfRef(pdf);

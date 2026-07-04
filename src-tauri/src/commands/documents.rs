@@ -1,7 +1,6 @@
 use super::settings::DbState;
 use crate::db::models::{Collection, Document, DocumentCollection};
 use chrono::Utc;
-use std::fs;
 use std::path::PathBuf;
 use tauri::State;
 use uuid::Uuid;
@@ -22,10 +21,13 @@ pub fn import_document(db: State<DbState>, file_path: String) -> Result<Document
             _ => "pdf".to_string(),
         })
         .unwrap_or_else(|| "pdf".to_string());
+    let access_bookmark = crate::file_access::create_bookmark(&file_path, false);
 
     // Extract metadata from PDFs; EPUB metadata extracted later by extract_epub_content
     let (meta_title, meta_author) = if doc_type == "pdf" {
-        crate::pdf::extract_metadata(&file_path)
+        crate::file_access::with_access(&file_path, access_bookmark.as_deref(), || {
+            Ok(crate::pdf::extract_metadata(&file_path))
+        })?
     } else {
         (None, None)
     };
@@ -37,9 +39,9 @@ pub fn import_document(db: State<DbState>, file_path: String) -> Result<Document
     let title = meta_title.clone().unwrap_or_else(|| filename.clone());
 
     conn.execute(
-        "INSERT INTO documents (id, title, original_filename, file_path, file_sha256, page_count, created_at, updated_at, last_opened_at, parse_status, has_native_toc, document_type, author)
-         VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?6, ?7, ?8, 'pending', 0, ?9, ?10)",
-        rusqlite::params![id, title, filename, file_path, Option::<String>::None, now, now, now, doc_type, meta_author],
+        "INSERT INTO documents (id, title, original_filename, file_path, file_sha256, page_count, created_at, updated_at, last_opened_at, parse_status, has_native_toc, document_type, author, access_bookmark)
+         VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?6, ?7, ?8, 'pending', 0, ?9, ?10, ?11)",
+        rusqlite::params![id, title, filename, file_path, Option::<String>::None, now, now, now, doc_type, meta_author, access_bookmark],
     )
     .map_err(|e| format!("Failed to insert document: {}", e))?;
 
@@ -141,12 +143,12 @@ pub fn get_document(db: State<DbState>, document_id: String) -> Result<Option<Do
 
 #[tauri::command]
 pub fn read_document_bytes(db: State<DbState>, document_id: String) -> Result<Vec<u8>, String> {
-    let file_path: String = {
+    let (file_path, access_bookmark): (String, Option<Vec<u8>>) = {
         let conn = db.0.lock().map_err(|e| e.to_string())?;
         conn.query_row(
-            "SELECT file_path FROM documents WHERE id = ?1",
+            "SELECT file_path, access_bookmark FROM documents WHERE id = ?1",
             rusqlite::params![document_id],
-            |row| row.get(0),
+            |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .map_err(|e| match e {
             rusqlite::Error::QueryReturnedNoRows => "Document not found".to_string(),
@@ -154,7 +156,7 @@ pub fn read_document_bytes(db: State<DbState>, document_id: String) -> Result<Ve
         })?
     };
 
-    fs::read(&file_path).map_err(|e| format!("Failed to read document at {}: {}", file_path, e))
+    crate::file_access::read(&file_path, access_bookmark.as_deref())
 }
 
 #[tauri::command]
@@ -219,8 +221,19 @@ pub fn refresh_document_metadata(
     file_path: String,
     document_type: String,
 ) -> Result<Document, String> {
+    let access_bookmark: Option<Vec<u8>> = {
+        let conn = db.0.lock().map_err(|e| e.to_string())?;
+        conn.query_row(
+            "SELECT access_bookmark FROM documents WHERE id = ?1",
+            rusqlite::params![document_id],
+            |row| row.get(0),
+        )
+        .ok()
+    };
     let (meta_title, meta_author) = if document_type == "pdf" {
-        crate::pdf::extract_metadata(&file_path)
+        crate::file_access::with_access(&file_path, access_bookmark.as_deref(), || {
+            Ok(crate::pdf::extract_metadata(&file_path))
+        })?
     } else {
         (None, None)
     };

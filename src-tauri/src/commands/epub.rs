@@ -22,8 +22,19 @@ pub fn extract_epub_content(
     document_id: String,
     file_path: String,
 ) -> Result<i32, String> {
+    let (stored_path, access_bookmark): (String, Option<Vec<u8>>) = {
+        let conn = db.0.lock().map_err(|e| e.to_string())?;
+        conn.query_row(
+            "SELECT file_path, access_bookmark FROM documents WHERE id = ?1",
+            rusqlite::params![document_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap_or((file_path, None))
+    };
     let (chapters, total, toc, meta_title, meta_author) =
-        epub::extractor::extract_chapters(&file_path)?;
+        crate::file_access::with_access(&stored_path, access_bookmark.as_deref(), || {
+            epub::extractor::extract_chapters(&stored_path)
+        })?;
 
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     let now = Utc::now().to_rfc3339();
@@ -92,6 +103,7 @@ pub fn extract_epub_content(
 
 #[tauri::command]
 pub fn get_document_cover(
+    db: State<DbState>,
     document_id: String,
     file_path: String,
     document_type: String,
@@ -103,7 +115,18 @@ pub fn get_document_cover(
         return Ok(Some(data));
     }
     if document_type == "epub" {
-        match epub::cover::extract_cover(&file_path) {
+        let (stored_path, access_bookmark): (String, Option<Vec<u8>>) = {
+            let conn = db.0.lock().map_err(|e| e.to_string())?;
+            conn.query_row(
+                "SELECT file_path, access_bookmark FROM documents WHERE id = ?1",
+                rusqlite::params![document_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap_or((file_path, None))
+        };
+        match crate::file_access::with_access(&stored_path, access_bookmark.as_deref(), || {
+            Ok(epub::cover::extract_cover(&stored_path))
+        })? {
             Some((data, _mime)) => {
                 // Cache it
                 let _ = std::fs::write(covers_dir(&app)?.join(&document_id), &data);

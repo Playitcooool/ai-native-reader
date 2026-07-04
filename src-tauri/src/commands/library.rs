@@ -20,18 +20,19 @@ pub fn set_library_folder(
     app: AppHandle,
     path: String,
 ) -> Result<(), String> {
+    let access_bookmark = crate::file_access::create_bookmark(&path, true);
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     conn.execute("DELETE FROM library_folder WHERE id = 1", [])
         .map_err(|e| e.to_string())?;
     conn.execute(
-        "INSERT INTO library_folder (id, folder_path) VALUES (1, ?1)",
-        rusqlite::params![path],
+        "INSERT INTO library_folder (id, folder_path, access_bookmark) VALUES (1, ?1, ?2)",
+        rusqlite::params![path, access_bookmark],
     )
     .map_err(|e| e.to_string())?;
     drop(conn);
 
-    scan_folder_into_db(&db.0, &path)?;
-    start_watcher(&library, &app, &path)?;
+    scan_folder_into_db(&db.0, &path, access_bookmark.as_deref())?;
+    start_watcher(&library, &app, &path, access_bookmark)?;
 
     Ok(())
 }
@@ -64,18 +65,18 @@ pub fn clear_library_folder(
 /// Called on app startup — reads folder path from DB and starts watcher.
 pub fn init_watcher_if_configured(app_handle: &AppHandle) {
     let db = app_handle.state::<DbState>();
-    let folder: Option<String> = db.0.lock().ok().and_then(|conn| {
+    let folder: Option<(String, Option<Vec<u8>>)> = db.0.lock().ok().and_then(|conn| {
         conn.query_row(
-            "SELECT folder_path FROM library_folder WHERE id = 1",
+            "SELECT folder_path, access_bookmark FROM library_folder WHERE id = 1",
             [],
-            |row| row.get(0),
+            |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .ok()
     });
-    if let Some(ref path) = folder {
-        if scan_folder_into_db(&db.0, path).is_ok() {
+    if let Some((ref path, ref bookmark)) = folder {
+        if scan_folder_into_db(&db.0, path, bookmark.as_deref()).is_ok() {
             let library = app_handle.state::<LibraryState>();
-            let _ = start_watcher(&library, app_handle, path);
+            let _ = start_watcher(&library, app_handle, path, bookmark.clone());
         }
     }
 }
@@ -83,96 +84,100 @@ pub fn init_watcher_if_configured(app_handle: &AppHandle) {
 fn scan_folder_into_db(
     conn_mutex: &Mutex<rusqlite::Connection>,
     folder_path: &str,
+    access_bookmark: Option<&[u8]>,
 ) -> Result<i32, String> {
-    // Quick query under the lock to get existing paths
-    let existing: std::collections::HashSet<String> = {
-        let conn = conn_mutex.lock().map_err(|e| e.to_string())?;
-        let mut stmt = conn
-            .prepare("SELECT file_path FROM documents")
-            .map_err(|e| e.to_string())?;
-        let result: std::collections::HashSet<String> = stmt
-            .query_map([], |row| row.get::<_, String>(0))
-            .map_err(|e| e.to_string())?
-            .filter_map(|r| r.ok())
-            .collect();
-        result
-        // lock released here when conn + stmt drop
-    };
-
-    let mut pending: Vec<(String, String, String)> = Vec::new(); // (path, filename, doc_type)
-    let mut dirs = vec![std::path::PathBuf::from(folder_path)];
-    while let Some(dir) = dirs.pop() {
-        let Ok(entries) = fs::read_dir(&dir) else {
-            continue;
+    crate::file_access::with_access(folder_path, access_bookmark, || {
+        // Quick query under the lock to get existing paths
+        let existing: std::collections::HashSet<String> = {
+            let conn = conn_mutex.lock().map_err(|e| e.to_string())?;
+            let mut stmt = conn
+                .prepare("SELECT file_path FROM documents")
+                .map_err(|e| e.to_string())?;
+            let result: std::collections::HashSet<String> = stmt
+                .query_map([], |row| row.get::<_, String>(0))
+                .map_err(|e| e.to_string())?
+                .filter_map(|r| r.ok())
+                .collect();
+            result
+            // lock released here when conn + stmt drop
         };
-        for entry in entries.filter_map(|e| e.ok()) {
-            let file_path = entry.path();
-            if file_path.is_dir() {
-                dirs.push(file_path);
-            } else if let Some(ext) = file_path
-                .extension()
-                .and_then(|e| e.to_str())
-                .map(|e| e.to_lowercase())
-            {
-                if ext == "pdf" || ext == "epub" {
-                    let path_str = file_path.to_string_lossy().to_string();
-                    if existing.contains(&path_str) {
-                        continue;
+
+        let mut pending: Vec<(String, String, String)> = Vec::new(); // (path, filename, doc_type)
+        let mut dirs = vec![std::path::PathBuf::from(folder_path)];
+        while let Some(dir) = dirs.pop() {
+            let Ok(entries) = fs::read_dir(&dir) else {
+                continue;
+            };
+            for entry in entries.filter_map(|e| e.ok()) {
+                let file_path = entry.path();
+                if file_path.is_dir() {
+                    dirs.push(file_path);
+                } else if let Some(ext) = file_path
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .map(|e| e.to_lowercase())
+                {
+                    if ext == "pdf" || ext == "epub" {
+                        let path_str = file_path.to_string_lossy().to_string();
+                        if existing.contains(&path_str) {
+                            continue;
+                        }
+                        let filename = file_path
+                            .file_name()
+                            .map(|n| n.to_string_lossy().to_string())
+                            .unwrap_or_default();
+                        let doc_type = if ext == "epub" { "epub" } else { "pdf" };
+                        pending.push((path_str, filename, doc_type.to_string()));
                     }
-                    let filename = file_path
-                        .file_name()
-                        .map(|n| n.to_string_lossy().to_string())
-                        .unwrap_or_default();
-                    let doc_type = if ext == "epub" { "epub" } else { "pdf" };
-                    pending.push((path_str, filename, doc_type.to_string()));
                 }
             }
         }
-    }
 
-    if pending.is_empty() {
-        return Ok(0);
-    }
+        if pending.is_empty() {
+            return Ok(0);
+        }
 
-    // Extract metadata before acquiring the lock (avoids blocking DB during file I/O)
-    let enriched: Vec<(String, String, String, String, String, Option<String>)> = pending
-        .iter()
-        .map(|(path_str, filename, doc_type)| {
-            let (meta_title, meta_author) = if doc_type == "pdf" {
-                crate::pdf::extract_metadata(path_str)
-            } else {
-                (None, None)
-            };
-            let title = meta_title.unwrap_or_else(|| filename.clone());
-            (
-                Uuid::new_v4().to_string(),
-                title,
-                filename.clone(),
-                path_str.clone(),
-                doc_type.clone(),
-                meta_author,
+        // Extract metadata before acquiring the lock (avoids blocking DB during file I/O)
+        let enriched: Vec<(String, String, String, String, String, Option<String>)> = pending
+            .iter()
+            .map(|(path_str, filename, doc_type)| {
+                let (meta_title, meta_author) = if doc_type == "pdf" {
+                    crate::pdf::extract_metadata(path_str)
+                } else {
+                    (None, None)
+                };
+                let title = meta_title.unwrap_or_else(|| filename.clone());
+                (
+                    Uuid::new_v4().to_string(),
+                    title,
+                    filename.clone(),
+                    path_str.clone(),
+                    doc_type.clone(),
+                    meta_author,
+                )
+            })
+            .collect();
+
+        // Acquire lock only for the INSERTs
+        let conn = conn_mutex.lock().map_err(|e| e.to_string())?;
+        let now = Utc::now().to_rfc3339();
+        for (id, title, filename, path_str, doc_type, meta_author) in &enriched {
+            conn.execute(
+                "INSERT INTO documents (id, title, original_filename, file_path, file_sha256, page_count, created_at, updated_at, last_opened_at, parse_status, has_native_toc, document_type, author, access_bookmark)
+             VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?6, ?7, ?8, 'pending', 0, ?9, ?10, ?11)",
+                rusqlite::params![id, title, filename, path_str, Option::<String>::None, now, now, now, doc_type, meta_author, access_bookmark],
             )
-        })
-        .collect();
-
-    // Acquire lock only for the INSERTs
-    let conn = conn_mutex.lock().map_err(|e| e.to_string())?;
-    let now = Utc::now().to_rfc3339();
-    for (id, title, filename, path_str, doc_type, meta_author) in &enriched {
-        conn.execute(
-            "INSERT INTO documents (id, title, original_filename, file_path, file_sha256, page_count, created_at, updated_at, last_opened_at, parse_status, has_native_toc, document_type, author)
-             VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?6, ?7, ?8, 'pending', 0, ?9, ?10)",
-            rusqlite::params![id, title, filename, path_str, Option::<String>::None, now, now, now, doc_type, meta_author],
-        )
-        .map_err(|e| e.to_string())?;
-    }
-    Ok(pending.len() as i32)
+            .map_err(|e| e.to_string())?;
+        }
+        Ok(pending.len() as i32)
+    })
 }
 
 fn start_watcher(
     library: &LibraryState,
     app_handle: &AppHandle,
     folder_path: &str,
+    access_bookmark: Option<Vec<u8>>,
 ) -> Result<(), String> {
     let (tx, rx) = mpsc::channel::<Result<Event, notify::Error>>();
     let mut watcher = RecommendedWatcher::new(
@@ -183,90 +188,97 @@ fn start_watcher(
     )
     .map_err(|e| e.to_string())?;
 
-    watcher
-        .watch(Path::new(folder_path), RecursiveMode::Recursive)
-        .map_err(|e| e.to_string())?;
+    crate::file_access::with_access(folder_path, access_bookmark.as_deref(), || {
+        watcher
+            .watch(Path::new(folder_path), RecursiveMode::Recursive)
+            .map_err(|e| e.to_string())
+    })?;
 
     *library.watcher.lock().map_err(|e| e.to_string())? = Some(watcher);
 
     let db_path = library.db_path.clone();
     let handle = app_handle.clone();
+    let folder_path = folder_path.to_string();
     std::thread::spawn(move || {
-        let c = match rusqlite::Connection::open(&db_path) {
-            Ok(c) => c,
-            Err(_) => return,
-        };
-        let _ = c.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA synchronous=NORMAL; PRAGMA cache_size=-8000;");
-        for event in rx {
-            let Ok(Event {
-                kind: EventKind::Create(_),
-                paths,
-                ..
-            }) = event
-            else {
-                continue;
+        let _ = crate::file_access::with_access(&folder_path, access_bookmark.as_deref(), || {
+            let c = match rusqlite::Connection::open(&db_path) {
+                Ok(c) => c,
+                Err(_) => return Ok(()),
             };
-            let mut imported = false;
-            for path in &paths {
-                if let Some(ext) = path
-                    .extension()
-                    .and_then(|e| e.to_str())
-                    .map(|e| e.to_lowercase())
-                {
-                    if ext == "pdf" || ext == "epub" {
-                        let path_str = path.to_string_lossy().to_string();
-                        let exists: bool = c
-                            .query_row(
-                                "SELECT COUNT(*) FROM documents WHERE file_path = ?1",
-                                rusqlite::params![path_str],
-                                |row| row.get::<_, i64>(0),
-                            )
-                            .unwrap_or(0)
-                            > 0;
-                        if !exists {
-                            let filename = path
-                                .file_name()
-                                .map(|n| n.to_string_lossy().to_string())
-                                .unwrap_or_default();
-                            let doc_type = if ext == "epub" { "epub" } else { "pdf" };
-                            let (meta_title, meta_author) = if doc_type == "pdf" {
-                                crate::pdf::extract_metadata(&path_str)
-                            } else {
-                                (None, None)
-                            };
-                            let title = meta_title.clone().unwrap_or_else(|| filename.clone());
-                            let id = Uuid::new_v4().to_string();
-                            let now = Utc::now().to_rfc3339();
-                            if let Err(e) = c.execute(
-                                "INSERT INTO documents (id,title,original_filename,file_path,\
+            let _ = c.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA synchronous=NORMAL; PRAGMA cache_size=-8000;");
+            for event in rx {
+                let Ok(Event {
+                    kind: EventKind::Create(_),
+                    paths,
+                    ..
+                }) = event
+                else {
+                    continue;
+                };
+                let mut imported = false;
+                for path in &paths {
+                    if let Some(ext) = path
+                        .extension()
+                        .and_then(|e| e.to_str())
+                        .map(|e| e.to_lowercase())
+                    {
+                        if ext == "pdf" || ext == "epub" {
+                            let path_str = path.to_string_lossy().to_string();
+                            let exists: bool = c
+                                .query_row(
+                                    "SELECT COUNT(*) FROM documents WHERE file_path = ?1",
+                                    rusqlite::params![path_str],
+                                    |row| row.get::<_, i64>(0),
+                                )
+                                .unwrap_or(0)
+                                > 0;
+                            if !exists {
+                                let filename = path
+                                    .file_name()
+                                    .map(|n| n.to_string_lossy().to_string())
+                                    .unwrap_or_default();
+                                let doc_type = if ext == "epub" { "epub" } else { "pdf" };
+                                let (meta_title, meta_author) = if doc_type == "pdf" {
+                                    crate::pdf::extract_metadata(&path_str)
+                                } else {
+                                    (None, None)
+                                };
+                                let title = meta_title.clone().unwrap_or_else(|| filename.clone());
+                                let id = Uuid::new_v4().to_string();
+                                let now = Utc::now().to_rfc3339();
+                                if let Err(e) = c.execute(
+                                    "INSERT INTO documents (id,title,original_filename,file_path,\
                                  file_sha256,page_count,created_at,updated_at,last_opened_at,\
-                                 parse_status,has_native_toc,document_type,author)
-                                 VALUES (?1,?2,?3,?4,?5,NULL,?6,?7,?8,'pending',0,?9,?10)",
-                                rusqlite::params![
-                                    id,
-                                    title,
-                                    filename,
-                                    path_str,
-                                    Option::<String>::None,
-                                    now,
-                                    now,
-                                    now,
-                                    doc_type,
-                                    meta_author
-                                ],
-                            ) {
-                                eprintln!("Watcher: failed to insert {}: {}", filename, e);
-                            } else {
-                                imported = true;
+                                 parse_status,has_native_toc,document_type,author,access_bookmark)
+                                 VALUES (?1,?2,?3,?4,?5,NULL,?6,?7,?8,'pending',0,?9,?10,?11)",
+                                    rusqlite::params![
+                                        id,
+                                        title,
+                                        filename,
+                                        path_str,
+                                        Option::<String>::None,
+                                        now,
+                                        now,
+                                        now,
+                                        doc_type,
+                                        meta_author,
+                                        access_bookmark.as_deref()
+                                    ],
+                                ) {
+                                    eprintln!("Watcher: failed to insert {}: {}", filename, e);
+                                } else {
+                                    imported = true;
+                                }
                             }
                         }
                     }
                 }
+                if imported {
+                    let _ = handle.emit("library-folder-updated", ());
+                }
             }
-            if imported {
-                let _ = handle.emit("library-folder-updated", ());
-            }
-        }
+            Ok(())
+        });
     });
     Ok(())
 }
