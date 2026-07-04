@@ -9,6 +9,7 @@ import type { Annotation } from "../stores/notesStore";
 import type { Document } from "../stores/documentStore";
 import TocSidebar from "../features/toc/TocSidebar";
 import { chapterToPercent } from "../features/epub/epubProgress";
+import { buildLibraryTree, type LibraryTreeNode } from "../features/library/libraryTree";
 import { useToast } from "./Toast";
 import { CollectionAssignmentMenu, CollectionFilterChips } from "./CollectionControls";
 
@@ -16,60 +17,8 @@ export type SidebarTab = "contents" | "library" | "notes" | "settings";
 type SidebarVariant = "library" | "reader";
 const NOTE_LIKE_ANNOTATION_TYPES = new Set(["note", "ai_note"]);
 
-// ── File tree types & helpers ──────────────────────────────────
-
-interface FileNode {
-  name: string;
-  isDir: boolean;
-  children: FileNode[];
-  document?: Document;
-}
-
-function buildFileTree(docs: Document[], folderPath: string): FileNode[] {
-  const root: FileNode = {
-    name: folderPath.split("/").pop() ?? folderPath,
-    isDir: true,
-    children: [],
-  };
-
-  for (const doc of docs) {
-    if (!doc.file_path.startsWith(folderPath)) continue;
-    let rel = doc.file_path.slice(folderPath.length);
-    if (rel.startsWith("/")) rel = rel.slice(1);
-    const parts = rel.split("/");
-    if (parts.length === 0) continue;
-
-    let cur = root;
-    for (let i = 0; i < parts.length - 1; i++) {
-      let child = cur.children.find((c) => c.name === parts[i] && c.isDir);
-      if (!child) {
-        child = { name: parts[i], isDir: true, children: [] };
-        cur.children.push(child);
-      }
-      cur = child;
-    }
-    cur.children.push({
-      name: parts[parts.length - 1],
-      isDir: false,
-      children: [],
-      document: doc,
-    });
-  }
-
-  const sortNodes = (nodes: FileNode[]) => {
-    nodes.sort((a, b) => {
-      if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
-      return a.name.localeCompare(b.name);
-    });
-    nodes.forEach((n) => { if (n.isDir) sortNodes(n.children); });
-  };
-  sortNodes(root.children);
-
-  return root.children;
-}
-
 function FileTreeView({ nodes, currentId, onSelect, onContextMenu }: {
-  nodes: FileNode[];
+  nodes: LibraryTreeNode[];
   currentId: string | null;
   onSelect: (doc: Document) => void;
   onContextMenu?: (e: React.MouseEvent, doc: Document) => void;
@@ -84,7 +33,7 @@ function FileTreeView({ nodes, currentId, onSelect, onContextMenu }: {
 }
 
 function TreeNodeItem({ node, depth, currentId, onSelect, onContextMenu }: {
-  node: FileNode;
+  node: LibraryTreeNode;
   depth: number;
   currentId: string | null;
   onSelect: (doc: Document) => void;
@@ -94,16 +43,20 @@ function TreeNodeItem({ node, depth, currentId, onSelect, onContextMenu }: {
 
   if (!node.isDir) {
     const isActive = node.document?.id === currentId;
-    const title = node.document ? documentDisplayTitle(node.document) : node.name;
+    const docTitle = node.document ? documentDisplayTitle(node.document) : "";
+    const meta = node.document
+      ? [node.document.title?.trim() && node.document.title.trim() !== node.name ? node.document.title.trim() : null, node.document.author?.trim()].filter(Boolean).join(" · ")
+      : "";
     return (
       <button
         onClick={() => node.document && onSelect(node.document)}
         onContextMenu={(e) => node.document && onContextMenu?.(e, node.document)}
         className={`tree-leaf ${isActive ? "active" : ""}`}
         style={{ paddingLeft: 10 + depth * 16 }}
-        title={title}
+        title={docTitle}
       >
-        {title}
+        <span className="tree-file-name">{node.name}</span>
+        {meta && <span className="tree-file-meta">{meta}</span>}
       </button>
     );
   }
@@ -123,28 +76,6 @@ function TreeNodeItem({ node, depth, currentId, onSelect, onContextMenu }: {
         <TreeNodeItem key={child.name + i} node={child} depth={depth + 1} currentId={currentId} onSelect={onSelect} onContextMenu={onContextMenu} />
       ))}
     </div>
-  );
-}
-
-// ── End file tree helpers ──────────────────────────────────────
-
-function DocItem({ doc, currentId, onSelect, onContextMenu }: {
-  doc: Document;
-  currentId: string | null;
-  onSelect: (doc: Document) => void;
-  onContextMenu?: (e: React.MouseEvent, doc: Document) => void;
-}) {
-  const isActive = doc.id === currentId;
-
-  return (
-    <button
-      onClick={() => onSelect(doc)}
-      onContextMenu={(e) => onContextMenu?.(e, doc)}
-      className={`recent-item ${isActive ? "active" : ""}`}
-    >
-      <span className="recent-item-title">{documentDisplayTitle(doc)}</span>
-      {doc.author && <span className="recent-item-meta">{doc.author}</span>}
-    </button>
   );
 }
 
@@ -229,14 +160,8 @@ export default function LeftSidebar({
     () => filterDocumentsByCollection(documents, selectedCollectionId, documentCollections),
     [documents, selectedCollectionId, documentCollections],
   );
-  const nonFolderDocs = useMemo(
-    () => libraryFolder
-      ? visibleDocuments.filter((d) => !d.file_path.startsWith(libraryFolder))
-      : [],
-    [libraryFolder, visibleDocuments],
-  );
   const fileTree = useMemo(
-    () => libraryFolder ? buildFileTree(visibleDocuments, libraryFolder) : [],
+    () => buildLibraryTree(visibleDocuments, libraryFolder),
     [libraryFolder, visibleDocuments],
   );
 
@@ -403,31 +328,13 @@ export default function LeftSidebar({
               <p style={{ color: "var(--text-muted)", fontSize: 14 }}>
                 No books in this collection.
               </p>
-            ) : libraryFolder ? (
-              <div>
-                <FileTreeView
-                  nodes={fileTree}
-                  currentId={currentDocument?.id ?? null}
-                  onSelect={handleOpenDocument}
-                  onContextMenu={handleContextMenu}
-                />
-                {nonFolderDocs.length > 0 && (
-                  <div style={{ marginTop: 8 }}>
-                    <p className="recent-section-header">Other</p>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                      {nonFolderDocs.map((doc) => (
-                        <DocItem key={doc.id} doc={doc} currentId={currentDocument?.id ?? null} onSelect={handleOpenDocument} onContextMenu={handleContextMenu} />
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
             ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                {visibleDocuments.map((doc) => (
-                  <DocItem key={doc.id} doc={doc} currentId={currentDocument?.id ?? null} onSelect={handleOpenDocument} onContextMenu={handleContextMenu} />
-                ))}
-              </div>
+              <FileTreeView
+                nodes={fileTree}
+                currentId={currentDocument?.id ?? null}
+                onSelect={handleOpenDocument}
+                onContextMenu={handleContextMenu}
+              />
             )}
           </div>
             )}

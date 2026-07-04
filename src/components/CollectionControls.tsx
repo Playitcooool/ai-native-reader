@@ -1,4 +1,5 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { FormEvent } from "react";
 import type { Document } from "../stores/documentStore";
 import {
   collectionIdsForDocument,
@@ -6,6 +7,7 @@ import {
   useDocumentStore,
 } from "../stores/documentStore";
 import { useToast } from "./Toast";
+import { Icon } from "./Icons";
 
 export function CollectionFilterChips({ documents }: { documents: Document[] }) {
   const {
@@ -16,6 +18,10 @@ export function CollectionFilterChips({ documents }: { documents: Document[] }) 
     createCollection,
   } = useDocumentStore();
   const { addToast } = useToast();
+  const [isCreating, setIsCreating] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
   const collectionCounts = useMemo(() => {
     const documentIds = new Set(documents.map((doc) => doc.id));
     const counts = new Map<string, number>();
@@ -27,20 +33,35 @@ export function CollectionFilterChips({ documents }: { documents: Document[] }) 
   }, [documents, documentCollections]);
   const recentCount = useMemo(() => documents.filter((doc) => doc.last_opened_at).length, [documents]);
 
-  const handleNewCollection = async () => {
-    const name = window.prompt("New collection name");
-    if (name === null) return;
-    const trimmed = name.trim();
+  useEffect(() => {
+    if (isCreating) inputRef.current?.focus();
+  }, [isCreating]);
+
+  const cancelCreate = () => {
+    if (isSaving) return;
+    setIsCreating(false);
+    setNewName("");
+  };
+
+  const handleNewCollection = async (event: FormEvent) => {
+    event.preventDefault();
+    if (isSaving) return;
+    const trimmed = newName.trim();
     if (!trimmed) {
       addToast({ type: "error", message: "Collection name cannot be empty." });
       return;
     }
+    setIsSaving(true);
     try {
       const collection = await createCollection(trimmed);
       setSelectedCollectionId(collection.id);
       addToast({ type: "info", message: `Created ${collection.name}.` });
+      setIsCreating(false);
+      setNewName("");
     } catch (err) {
       addToast({ type: "error", message: err instanceof Error ? err.message : "Failed to create collection." });
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -73,9 +94,30 @@ export function CollectionFilterChips({ documents }: { documents: Document[] }) 
           </span>
         </button>
       ))}
-      <button className="collection-chip" onClick={handleNewCollection}>
-        <span className="collection-chip-name">New collection...</span>
-      </button>
+      {isCreating ? (
+        <form className="collection-chip collection-chip-form" onSubmit={handleNewCollection}>
+          <input
+            ref={inputRef}
+            value={newName}
+            onChange={(event) => setNewName(event.target.value)}
+            onBlur={cancelCreate}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") cancelCreate();
+            }}
+            disabled={isSaving}
+            aria-label="New collection name"
+          />
+        </form>
+      ) : (
+        <button
+          className="collection-chip collection-chip-icon"
+          onClick={() => setIsCreating(true)}
+          title="New collection"
+          aria-label="New collection"
+        >
+          <Icon name="plus" />
+        </button>
+      )}
     </div>
   );
 }
