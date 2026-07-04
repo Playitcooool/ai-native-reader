@@ -16,7 +16,7 @@ import {
 import SelectionMenu from "../features/pdf/SelectionMenu";
 import PageView from "../features/pdf/PageView";
 import { findPageIndexAtOffset, useVisibleRange } from "../features/pdf/useVisibleRange";
-import { computeInitialPdfZoom } from "../features/pdf/pdfInitialZoom";
+import { computePreferredInitialPdfZoom } from "../features/pdf/pdfInitialZoom";
 import InkToolbarControls from "../features/ink/InkToolbarControls";
 import type { InkToolState } from "../features/ink/inkGeometry";
 import { useToast } from "./Toast";
@@ -24,8 +24,6 @@ import ShortcutsModal from "./ShortcutsModal";
 import { Icon } from "./Icons";
 import { draftFromSelection } from "../features/ai/aiPanelHelpers";
 import type { Annotation } from "../stores/notesStore";
-
-const initialZoomKey = (documentId: string) => `rustybooks:pdf-initial-zoom:${documentId}`;
 
 interface PdfViewerProps {
   documentId: string;
@@ -64,6 +62,7 @@ export default function PdfViewer({ documentId, onBackHome, onOpenLibrary, onOpe
   } = useDocumentStore();
   const theme = useSettingsStore((s) => s.theme);
   const toggleTheme = useSettingsStore((s) => s.toggleTheme);
+  const defaultPdfZoom = useSettingsStore((s) => s.defaultPdfZoom);
   const pdfRef = useRef<PDFDocumentProxy | null>(null);
   const { addToast } = useToast();
   const extractionRef = useRef<PageExtractionQueue | null>(null);
@@ -73,6 +72,7 @@ export default function PdfViewer({ documentId, onBackHome, onOpenLibrary, onOpe
   const zoomAnchorRef = useRef<{ oldScrollTop: number; oldZoom: number } | null>(null);
   const lastJumpKeyRef = useRef("");
   const pageTopsRef = useRef<number[]>([]);
+  const initialZoomAppliedRef = useRef(false);
 
   // Search state
   const [showSearch, setShowSearch] = useState(false);
@@ -275,15 +275,16 @@ export default function PdfViewer({ documentId, onBackHome, onOpenLibrary, onOpe
 
   useEffect(() => {
     if (currentDocument?.document_type !== "pdf" || basePageWidth <= 0 || pageCount <= 0) return;
-    const key = initialZoomKey(documentId);
-    if (localStorage.getItem(key)) return;
+    if (currentDocument.last_zoom !== null) return;
+    if (initialZoomAppliedRef.current) return;
     const containerWidth = scrollRef.current?.clientWidth ?? 0;
-    if (containerWidth <= 0) return;
-    const nextZoom = computeInitialPdfZoom(containerWidth, basePageWidth);
-    localStorage.setItem(key, "1");
+    if (defaultPdfZoom === "auto" && containerWidth <= 0) return;
+    const nextZoom = computePreferredInitialPdfZoom(containerWidth, basePageWidth, defaultPdfZoom);
+    if (nextZoom <= 0) return;
+    initialZoomAppliedRef.current = true;
     setZoom(nextZoom);
     invoke("update_last_zoom", { documentId, zoom: nextZoom }).catch(() => {});
-  }, [basePageWidth, currentDocument?.document_type, documentId, pageCount, setZoom]);
+  }, [basePageWidth, currentDocument, defaultPdfZoom, documentId, pageCount, setZoom]);
 
   // Update extraction priority when visible range changes
   useEffect(() => {

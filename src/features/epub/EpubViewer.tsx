@@ -37,10 +37,13 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
   const loadAnnotations = useNotesStore((s) => s.loadAnnotations);
   const theme = useSettingsStore((s) => s.theme);
   const toggleTheme = useSettingsStore((s) => s.toggleTheme);
+  const defaultEpubFontSize = useSettingsStore((s) => s.defaultEpubFontSize);
   const { addToast } = useToast();
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [fontSize, setFontSize] = useState(() => Math.round((currentDocument?.last_zoom ?? 1) * 100));
+  const [fontSize, setFontSize] = useState(() => currentDocument?.last_zoom === null
+    ? defaultEpubFontSize
+    : Math.round((currentDocument?.last_zoom ?? 1) * 100));
   const [spineCount, setSpineCount] = useState(currentDocument?.page_count || 1);
   const [location, setLocation] = useState<EpubLocationSnapshot | null>(null);
   const [frameSize, setFrameSize] = useState({ width: 0, height: 0 });

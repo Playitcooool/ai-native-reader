@@ -11,6 +11,7 @@ import { chapterToPercent } from "../features/epub/epubProgress";
 import { buildLibraryTree, type LibraryTreeNode } from "../features/library/libraryTree";
 import { useToast } from "./Toast";
 import { CollectionAssignmentMenu, CollectionFilterChips } from "./CollectionControls";
+import { useSettingsStore } from "../stores/settingsStore";
 
 export type SidebarTab = "contents" | "library" | "notes";
 type SidebarVariant = "library" | "reader";
@@ -128,13 +129,16 @@ export default function LeftSidebar({
     ];
   const fallbackTab = variant === "reader" ? "contents" : "library";
   const allowedTabs = tabs.map((tab) => tab.id);
+  const rememberSidebarTab = useSettingsStore((s) => s.rememberSidebarTab);
   const [activeTab, setActiveTab] = useState<SidebarTab>(() =>
-    normalizeTab(initialTab ?? localStorage.getItem(TAB_STORAGE_KEY), allowedTabs, fallbackTab)
+    normalizeTab(initialTab ?? (rememberSidebarTab ? localStorage.getItem(TAB_STORAGE_KEY) : null), allowedTabs, fallbackTab)
   );
-  useEffect(() => { localStorage.setItem(TAB_STORAGE_KEY, activeTab); }, [activeTab]);
   useEffect(() => {
-    setActiveTab(normalizeTab(initialTab ?? activeTab, allowedTabs, fallbackTab));
-  }, [initialTab, variant]);
+    if (rememberSidebarTab) localStorage.setItem(TAB_STORAGE_KEY, activeTab);
+  }, [activeTab, rememberSidebarTab]);
+  useEffect(() => {
+    setActiveTab(normalizeTab(initialTab ?? (rememberSidebarTab ? activeTab : null), allowedTabs, fallbackTab));
+  }, [initialTab, rememberSidebarTab, variant]);
   const {
     documents,
     collections,

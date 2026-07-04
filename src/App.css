@@ -472,44 +472,20 @@
   display: none;
 }
 
-.settings-theme-group {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  max-width: 360px;
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  overflow: hidden;
-}
-
-.settings-theme-group button {
-  padding: 8px 10px;
-  border: 0;
-  border-left: 1px solid var(--border-color);
-  background: var(--bg-primary);
-  color: var(--text-primary);
-}
-
-.settings-theme-group button:first-child {
-  border-left: 0;
-}
-
-.settings-theme-group button.active {
-  background: var(--accent-color);
-  color: #fff;
-}
-
-.settings-provider-section {
+.settings-form-section {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 
+.settings-form-section label,
 .settings-provider-section label,
 .settings-checkbox {
   font-size: 12px;
   color: var(--text-secondary);
 }
 
+.settings-form-section select,
 .settings-provider-section select,
 .settings-provider-section input {
   padding: 7px 8px;
@@ -521,11 +497,50 @@
   font-size: 13px;
 }
 
+.settings-segmented-group {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  max-width: 360px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.settings-segmented-group button {
+  padding: 8px 10px;
+  border: 0;
+  border-left: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.settings-segmented-group button:first-child {
+  border-left: 0;
+}
+
+.settings-segmented-group button.active {
+  background: var(--accent-color);
+  color: #fff;
+}
+
+.settings-provider-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .settings-checkbox {
   display: flex;
   align-items: center;
   gap: 7px;
   cursor: pointer;
+}
+
+.settings-muted {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 .settings-primary-button {
@@ -537,6 +552,50 @@
   font: inherit;
   font-size: 13px;
   font-weight: 600;
+}
+
+.settings-danger-button {
+  width: fit-content;
+  padding: 7px 12px;
+  border: 1px solid var(--danger-color);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--danger-color);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.settings-shortcut-list {
+  display: flex;
+  flex-direction: column;
+  max-width: 460px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.settings-shortcut-list > div {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) 1.4fr;
+  gap: 12px;
+  padding: 9px 10px;
+  border-top: 1px solid var(--border-color);
+  font-size: 12px;
+}
+
+.settings-shortcut-list > div:first-child {
+  border-top: 0;
+}
+
+.settings-shortcut-list kbd {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.settings-shortcut-list span {
+  color: var(--text-secondary);
 }
 
 .settings-status-ok,

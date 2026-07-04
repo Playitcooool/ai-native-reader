@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeInitialPdfZoom } from "../src/features/pdf/pdfInitialZoom";
+import { computeInitialPdfZoom, computePreferredInitialPdfZoom } from "../src/features/pdf/pdfInitialZoom";
 
 describe("computeInitialPdfZoom", () => {
   it("fits the page width with a small gutter", () => {
@@ -9,5 +9,10 @@ describe("computeInitialPdfZoom", () => {
   it("keeps first-open zoom readable on narrow and wide screens", () => {
     expect(computeInitialPdfZoom(320, 1000)).toBe(0.5);
     expect(computeInitialPdfZoom(2400, 1000)).toBe(1.75);
+  });
+
+  it("uses configured first-open PDF zoom when not auto", () => {
+    expect(computePreferredInitialPdfZoom(1048, 1000, "auto")).toBe(1);
+    expect(computePreferredInitialPdfZoom(1048, 1000, "125")).toBe(1.25);
   });
 });
