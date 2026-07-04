@@ -194,7 +194,7 @@ export default function LeftSidebar({
       { id: "settings", label: "Settings" },
     ]
     : [
-      { id: "library", label: "Recent" },
+      { id: "library", label: "Library" },
       { id: "notes", label: "Notes" },
       { id: "settings", label: "Settings" },
     ];

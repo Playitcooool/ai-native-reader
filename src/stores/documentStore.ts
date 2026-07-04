@@ -43,12 +43,15 @@ export function collectionIdsForDocument(memberships: DocumentCollection[], docu
   return new Set(memberships.filter((m) => m.document_id === documentId).map((m) => m.collection_id));
 }
 
-export function filterDocumentsByCollection<T extends { id: string }>(
+export const RECENT_COLLECTION_ID = "__recent__";
+
+export function filterDocumentsByCollection<T extends { id: string; last_opened_at?: string | null }>(
   documents: T[],
   selectedCollectionId: string | null,
   memberships: DocumentCollection[],
 ): T[] {
-  if (!selectedCollectionId) return documents;
+  if (selectedCollectionId === null) return documents;
+  if (selectedCollectionId === RECENT_COLLECTION_ID) return documents.filter((doc) => doc.last_opened_at);
   const documentIds = new Set(memberships.filter((m) => m.collection_id === selectedCollectionId).map((m) => m.document_id));
   return documents.filter((doc) => documentIds.has(doc.id));
 }

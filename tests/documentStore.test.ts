@@ -3,6 +3,7 @@ import {
   collectionIdsForDocument,
   documentDisplayTitle,
   filterDocumentsByCollection,
+  RECENT_COLLECTION_ID,
   type Document,
 } from "../src/stores/documentStore";
 
@@ -18,9 +19,9 @@ describe("documentDisplayTitle", () => {
 
 describe("collection helpers", () => {
   const docs = [
-    { id: "d1" },
-    { id: "d2" },
-    { id: "d3" },
+    { id: "d1", last_opened_at: "2026-01-01T00:00:00Z" },
+    { id: "d2", last_opened_at: null },
+    { id: "d3", last_opened_at: "2026-01-02T00:00:00Z" },
   ] as Document[];
 
   const memberships = [
@@ -40,5 +41,9 @@ describe("collection helpers", () => {
   it("filters documents assigned to the selected collection", () => {
     expect(filterDocumentsByCollection(docs, "c1", memberships).map((doc) => doc.id)).toEqual(["d1", "d2"]);
     expect(filterDocumentsByCollection(docs, "c2", memberships).map((doc) => doc.id)).toEqual(["d2"]);
+  });
+
+  it("filters recent documents by last opened time", () => {
+    expect(filterDocumentsByCollection(docs, RECENT_COLLECTION_ID, memberships).map((doc) => doc.id)).toEqual(["d1", "d3"]);
   });
 });

@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import type { Document } from "../stores/documentStore";
 import {
   collectionIdsForDocument,
+  RECENT_COLLECTION_ID,
   useDocumentStore,
 } from "../stores/documentStore";
 import { useToast } from "./Toast";
@@ -12,7 +13,9 @@ export function CollectionFilterChips({ documents }: { documents: Document[] }) 
     documentCollections,
     selectedCollectionId,
     setSelectedCollectionId,
+    createCollection,
   } = useDocumentStore();
+  const { addToast } = useToast();
   const collectionCounts = useMemo(() => {
     const documentIds = new Set(documents.map((doc) => doc.id));
     const counts = new Map<string, number>();
@@ -22,11 +25,34 @@ export function CollectionFilterChips({ documents }: { documents: Document[] }) 
     }
     return counts;
   }, [documents, documentCollections]);
+  const recentCount = useMemo(() => documents.filter((doc) => doc.last_opened_at).length, [documents]);
 
-  if (collections.length === 0) return null;
+  const handleNewCollection = async () => {
+    const name = window.prompt("New collection name");
+    if (name === null) return;
+    const trimmed = name.trim();
+    if (!trimmed) {
+      addToast({ type: "error", message: "Collection name cannot be empty." });
+      return;
+    }
+    try {
+      const collection = await createCollection(trimmed);
+      setSelectedCollectionId(collection.id);
+      addToast({ type: "info", message: `Created ${collection.name}.` });
+    } catch (err) {
+      addToast({ type: "error", message: err instanceof Error ? err.message : "Failed to create collection." });
+    }
+  };
 
   return (
     <div className="collection-chips" aria-label="Collection filter">
+      <button
+        className={`collection-chip ${selectedCollectionId === RECENT_COLLECTION_ID ? "active" : ""}`}
+        onClick={() => setSelectedCollectionId(RECENT_COLLECTION_ID)}
+      >
+        <span className="collection-chip-name">Recent</span>
+        <span className="collection-chip-count">{recentCount}</span>
+      </button>
       <button
         className={`collection-chip ${selectedCollectionId === null ? "active" : ""}`}
         onClick={() => setSelectedCollectionId(null)}
@@ -47,6 +73,9 @@ export function CollectionFilterChips({ documents }: { documents: Document[] }) 
           </span>
         </button>
       ))}
+      <button className="collection-chip" onClick={handleNewCollection}>
+        <span className="collection-chip-name">New collection...</span>
+      </button>
     </div>
   );
 }
