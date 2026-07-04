@@ -24,6 +24,7 @@ export default function AiSidebar({ draftInput, onDraftConsumed }: AiSidebarProp
     isGenerating,
     aiPhase,
     streamingContent,
+    pendingUserContent,
     loadDocumentSessions,
     selectSession,
     startNewSession,
@@ -79,7 +80,7 @@ export default function AiSidebar({ draftInput, onDraftConsumed }: AiSidebarProp
     } else {
       setShowJump(true);
     }
-  }, [messages, streamingContent]);
+  }, [messages, streamingContent, pendingUserContent]);
 
   const maxPage = currentDocument?.page_count ?? 0;
   const selectedTocNode = useMemo(
@@ -358,13 +359,21 @@ export default function AiSidebar({ draftInput, onDraftConsumed }: AiSidebarProp
             )}
           </article>
         ))}
+        {pendingUserContent && (
+          <article className="ai-message ai-message-user" tabIndex={0}>
+            <div className="ai-message-label">You</div>
+            <div className="ai-user-text">{pendingUserContent}</div>
+          </article>
+        )}
         {isGenerating && streamingContent && (
           <article className="ai-message ai-message-assistant">
             <div className="ai-stream-header">
               <span className="ai-message-label">AI</span>
               <button onClick={cancelWorkflow} title="Cancel">Cancel</button>
             </div>
-            <div className="ai-user-text" style={{ whiteSpace: "pre-wrap" }}>{streamingContent}</div>
+            <Suspense fallback={<div className="ai-user-text" style={{ whiteSpace: "pre-wrap" }}>{streamingContent}</div>}>
+              <AiMarkdown onPageLink={jumpToPage}>{streamingContent}</AiMarkdown>
+            </Suspense>
           </article>
         )}
         {isGenerating && !streamingContent && (

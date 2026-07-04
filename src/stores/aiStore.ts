@@ -35,6 +35,7 @@ interface AiState {
   isGenerating: boolean;
   aiPhase: string;
   streamingContent: string;
+  pendingUserContent: string | null;
   lastWorkflowInput: Record<string, any> | null;
   setSessionId: (id: string | null) => void;
   addMessage: (msg: AiMessage) => void;
@@ -87,6 +88,14 @@ function flushStreamBuffer(set: any) {
   streamTimer = null;
 }
 
+function workflowUserContent(input: Parameters<AiState["runWorkflow"]>[0]): string {
+  return input.selectedText ?? input.question ??
+    (input.mode === "page_summary" ? `Summarize page ${input.pageNumber}` :
+     input.mode === "range_summary" && input.startPage && input.endPage ? `Summarize pages ${input.startPage}–${input.endPage}` :
+     input.mode === "range_qa" && input.question ? input.question :
+     input.mode);
+}
+
 export const useAiStore = create<AiState>((set, get) => ({
   messages: [],
   sessions: [],
@@ -95,6 +104,7 @@ export const useAiStore = create<AiState>((set, get) => ({
   isGenerating: false,
   aiPhase: "",
   streamingContent: "",
+  pendingUserContent: null,
   lastWorkflowInput: null,
   setSessionId: (id) => set({ sessionId: id }),
   addMessage: (msg) => set((s) => ({ messages: [...s.messages, msg] })),
@@ -107,7 +117,7 @@ export const useAiStore = create<AiState>((set, get) => ({
     activeDocumentId = documentId;
     if (switchingDocument) {
       ++messagesLoadToken;
-      set({ messages: [], sessions: [], sessionId: null });
+      set({ messages: [], sessions: [], sessionId: null, pendingUserContent: null });
     }
     set({ isLoadingSessions: true });
 
@@ -129,7 +139,7 @@ export const useAiStore = create<AiState>((set, get) => ({
   },
   selectSession: async (sessionId) => {
     const token = ++messagesLoadToken;
-    set({ sessionId, messages: [], streamingContent: "" });
+    set({ sessionId, messages: [], streamingContent: "", pendingUserContent: null });
     try {
       const msgs = await invoke<AiMessage[]>("get_session_messages", {
         sessionId,
@@ -143,7 +153,7 @@ export const useAiStore = create<AiState>((set, get) => ({
   },
   startNewSession: () => {
     ++messagesLoadToken;
-    set({ sessionId: null, messages: [], streamingContent: "", aiPhase: "", lastWorkflowInput: null });
+    set({ sessionId: null, messages: [], streamingContent: "", pendingUserContent: null, aiPhase: "", lastWorkflowInput: null });
   },
 
   runWorkflow: async (input) => {
@@ -151,7 +161,8 @@ export const useAiStore = create<AiState>((set, get) => ({
     isWorkflowRunning = true;
     runningDocumentId = input.documentId;
     activeDocumentId = input.documentId;
-    set({ isGenerating: true, aiPhase: "building_context", streamingContent: "", lastWorkflowInput: input as Record<string, any> });
+    const userContent = workflowUserContent(input);
+    set({ isGenerating: true, aiPhase: "building_context", streamingContent: "", pendingUserContent: userContent, lastWorkflowInput: input as Record<string, any> });
 
     let unlisten: UnlistenFn[] = [];
     cancelFlag = false;
@@ -216,11 +227,6 @@ export const useAiStore = create<AiState>((set, get) => ({
 
       // Add messages to local state
       const now = new Date().toISOString();
-      const userContent = input.selectedText ?? input.question ??
-        (input.mode === "page_summary" ? `Summarize page ${input.pageNumber}` :
-         input.mode === "range_summary" && input.startPage && input.endPage ? `Summarize pages ${input.startPage}–${input.endPage}` :
-         input.mode === "range_qa" && input.question ? input.question :
-         input.mode);
       const userMsg: AiMessage = {
         id: `user_${Date.now()}`,
         session_id: result.session_id,
@@ -245,6 +251,7 @@ export const useAiStore = create<AiState>((set, get) => ({
       set((s) => ({
         messages: [...s.messages, userMsg, asstMsg],
         streamingContent: "",
+        pendingUserContent: null,
       }));
 
       await get().loadDocumentSessions(input.documentId);
@@ -260,7 +267,7 @@ export const useAiStore = create<AiState>((set, get) => ({
       cancelFlag = false;
       isWorkflowRunning = false;
       runningDocumentId = null;
-      set({ isGenerating: false, aiPhase: "", streamingContent: "" });
+      set({ isGenerating: false, aiPhase: "", streamingContent: "", pendingUserContent: null });
     }
   },
 
@@ -269,7 +276,7 @@ export const useAiStore = create<AiState>((set, get) => ({
     if (runningDocumentId) {
       invoke("cancel_ai_workflow", { documentId: runningDocumentId }).catch(() => {});
     }
-    set({ isGenerating: false, aiPhase: "cancelled", streamingContent: "" });
+    set({ isGenerating: false, aiPhase: "cancelled", streamingContent: "", pendingUserContent: null });
   },
 
   retryLastWorkflow: async () => {
