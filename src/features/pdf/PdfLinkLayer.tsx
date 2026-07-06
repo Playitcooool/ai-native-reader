@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { PDFDocumentProxy, PDFPageProxy } from "pdfjs-dist";
 import { resolvePdfDestinationPage } from "../toc/tocTree";
 
@@ -11,6 +11,12 @@ type LinkAnnotation = {
   dest?: unknown;
 };
 
+type LinkAnnotationWithBox = LinkAnnotation & { box: React.CSSProperties };
+
+type LinkViewport = {
+  convertToViewportRectangle(rect: number[]): number[];
+};
+
 interface PdfLinkLayerProps {
   pdf: PDFDocumentProxy;
   page: PDFPageProxy;
@@ -20,35 +26,22 @@ interface PdfLinkLayerProps {
 }
 
 export default function PdfLinkLayer({ pdf, page, scale, onGoToPage, onOpenExternalUrl }: PdfLinkLayerProps) {
-  const [links, setLinks] = useState<Array<LinkAnnotation & { box: React.CSSProperties }>>([]);
+  const [annotations, setAnnotations] = useState<LinkAnnotation[]>([]);
+  const links = useMemo(
+    () => buildLinkBoxes(annotations, page.getViewport({ scale })),
+    [annotations, page, scale],
+  );
 
   useEffect(() => {
     let dead = false;
     page.getAnnotations({ intent: "display" }).then((annotations) => {
       if (dead) return;
-      const viewport = page.getViewport({ scale });
-      const next = (annotations as LinkAnnotation[])
-        .filter((annotation) => annotation.annotationType === PDF_LINK_ANNOTATION && annotation.rect)
-        .map((annotation) => {
-          const rect = viewport.convertToViewportRectangle(annotation.rect!);
-          const left = Math.min(rect[0], rect[2]);
-          const top = Math.min(rect[1], rect[3]);
-          return {
-            ...annotation,
-            box: {
-              left,
-              top,
-              width: Math.abs(rect[0] - rect[2]),
-              height: Math.abs(rect[1] - rect[3]),
-            },
-          };
-        });
-      setLinks(next);
+      setAnnotations(annotations as LinkAnnotation[]);
     }).catch(() => {
-      if (!dead) setLinks([]);
+      if (!dead) setAnnotations([]);
     });
     return () => { dead = true; };
-  }, [page, scale]);
+  }, [page]);
 
   if (links.length === 0) return null;
 
@@ -82,4 +75,23 @@ export default function PdfLinkLayer({ pdf, page, scale, onGoToPage, onOpenExter
       ))}
     </div>
   );
+}
+
+export function buildLinkBoxes(annotations: LinkAnnotation[], viewport: LinkViewport): LinkAnnotationWithBox[] {
+  return annotations
+    .filter((annotation) => annotation.annotationType === PDF_LINK_ANNOTATION && annotation.rect)
+    .map((annotation) => {
+      const rect = viewport.convertToViewportRectangle(annotation.rect!);
+      const left = Math.min(rect[0], rect[2]);
+      const top = Math.min(rect[1], rect[3]);
+      return {
+        ...annotation,
+        box: {
+          left,
+          top,
+          width: Math.abs(rect[0] - rect[2]),
+          height: Math.abs(rect[1] - rect[3]),
+        },
+      };
+    });
 }
