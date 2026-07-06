@@ -133,6 +133,16 @@ describe("inferAskScope", () => {
     });
   });
 
+  it("uses the deepest active section without sorting the TOC", () => {
+    const child = { ...tocNode, id: "section-1", parent_id: tocNode.id, level: 1, start_page: 5, end_page: 7 };
+    expect(inferAskScope("summarize this chapter", 6, [tocNode, child])).toEqual({
+      kind: "section",
+      node: child,
+      startPage: 5,
+      endPage: 7,
+    });
+  });
+
   it("detects Chinese section terms", () => {
     expect(inferAskScope("总结本章", 4, [tocNode])).toMatchObject({ kind: "section" });
   });

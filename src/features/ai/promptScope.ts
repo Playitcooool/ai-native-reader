@@ -43,7 +43,12 @@ function parseExplicitPageRange(question: string): AskScope | null {
 }
 
 function activeTocNode(page: number, tocNodes: TocNode[]): TocNode | null {
-  return tocNodes
-    .filter((node) => node.start_page <= page && (node.end_page == null || node.end_page >= page))
-    .sort((a, b) => b.level - a.level || b.start_page - a.start_page)[0] ?? null;
+  let best: TocNode | null = null;
+  for (const node of tocNodes) {
+    if (node.start_page > page || (node.end_page != null && node.end_page < page)) continue;
+    if (!best || node.level > best.level || (node.level === best.level && node.start_page > best.start_page)) {
+      best = node;
+    }
+  }
+  return best;
 }
