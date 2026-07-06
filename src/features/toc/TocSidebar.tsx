@@ -30,20 +30,31 @@ function buildTree(nodes: TocNode[]): TocNode[] {
   return roots;
 }
 
+function buildChildrenByParent(nodes: TocNode[]): Map<string, TocNode[]> {
+  const childrenByParent = new Map<string, TocNode[]>();
+  for (const node of nodes) {
+    if (!node.parent_id) continue;
+    const children = childrenByParent.get(node.parent_id) ?? [];
+    children.push(node);
+    childrenByParent.set(node.parent_id, children);
+  }
+  return childrenByParent;
+}
+
 function TocItem({
   node,
-  allNodes,
+  childrenByParent,
   activeNodeId,
   onNavigate,
   depth = 0,
 }: {
   node: TocNode;
-  allNodes: TocNode[];
+  childrenByParent: Map<string, TocNode[]>;
   activeNodeId: string | null;
   onNavigate: (page: number) => void;
   depth?: number;
 }) {
-  const children = allNodes.filter((n) => n.parent_id === node.id);
+  const children = childrenByParent.get(node.id) ?? [];
   const isActive = activeNodeId === node.id;
 
   return (
@@ -76,7 +87,7 @@ function TocItem({
         <TocItem
           key={child.id}
           node={child}
-          allNodes={allNodes}
+          childrenByParent={childrenByParent}
           activeNodeId={activeNodeId}
           onNavigate={onNavigate}
           depth={depth + 1}
@@ -92,6 +103,7 @@ export default function TocSidebar({
   onNavigate,
 }: TocSidebarProps) {
   const roots = useMemo(() => buildTree(nodes), [nodes]);
+  const childrenByParent = useMemo(() => buildChildrenByParent(nodes), [nodes]);
 
   if (nodes.length === 0) {
     return (
@@ -108,7 +120,7 @@ export default function TocSidebar({
         <TocItem
           key={root.id}
           node={root}
-          allNodes={nodes}
+          childrenByParent={childrenByParent}
           activeNodeId={activeNodeId}
           onNavigate={onNavigate}
         />
