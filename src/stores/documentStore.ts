@@ -69,6 +69,20 @@ export function filterDocumentsByCollection<T extends { id: string; last_opened_
 
 const METADATA_REFRESH_LIMIT = 12;
 
+export function documentsNeedingMetadataRefresh<T extends Pick<Document, "document_type" | "author" | "title" | "original_filename">>(
+  documents: T[],
+  limit = METADATA_REFRESH_LIMIT,
+): T[] {
+  const result: T[] = [];
+  for (const doc of documents) {
+    if (doc.document_type === 'pdf' && (!doc.author || doc.title === doc.original_filename)) {
+      result.push(doc);
+      if (result.length >= limit) break;
+    }
+  }
+  return result;
+}
+
 interface DocumentState {
   documents: Document[];
   collections: Collection[];
@@ -232,7 +246,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       ]);
       set({ documents: docs, collections, documentCollections, isLoading: false });
       // Background-refresh metadata for documents that need it
-      for (const doc of docs.filter((d) => d.document_type === 'pdf' && (!d.author || d.title === d.original_filename)).slice(0, METADATA_REFRESH_LIMIT)) {
+      for (const doc of documentsNeedingMetadataRefresh(docs)) {
         invoke<Document>("refresh_document_metadata", {
           documentId: doc.id, filePath: doc.file_path, documentType: doc.document_type,
         }).then((updated) => {

@@ -3,6 +3,7 @@ import {
   collectionIdsForDocument,
   documentDisplayAuthor,
   documentDisplayTitle,
+  documentsNeedingMetadataRefresh,
   filterDocumentsByCollection,
   RECENT_COLLECTION_ID,
   type Document,
@@ -51,5 +52,19 @@ describe("collection helpers", () => {
 
   it("filters recent documents by last opened time", () => {
     expect(filterDocumentsByCollection(docs, RECENT_COLLECTION_ID, memberships).map((doc) => doc.id)).toEqual(["d1", "d3"]);
+  });
+});
+
+describe("documentsNeedingMetadataRefresh", () => {
+  it("returns only PDF metadata candidates up to the limit", () => {
+    const docs = [
+      { id: "pdf-title-filename", document_type: "pdf", author: "Ada", title: "a.pdf", original_filename: "a.pdf" },
+      { id: "epub", document_type: "epub", author: null, title: null, original_filename: "b.epub" },
+      { id: "pdf-no-author", document_type: "pdf", author: null, title: "Good title", original_filename: "c.pdf" },
+      { id: "pdf-ready", document_type: "pdf", author: "Ada", title: "Good title", original_filename: "d.pdf" },
+    ] as Document[];
+
+    expect(documentsNeedingMetadataRefresh(docs, 1).map((doc) => doc.id)).toEqual(["pdf-title-filename"]);
+    expect(documentsNeedingMetadataRefresh(docs, 12).map((doc) => doc.id)).toEqual(["pdf-title-filename", "pdf-no-author"]);
   });
 });
