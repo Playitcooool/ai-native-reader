@@ -29,8 +29,13 @@ fn insert_page_text(
     let now = Utc::now().to_rfc3339();
     let char_count = text.chars().count() as i64;
     conn.execute(
-        "INSERT OR REPLACE INTO pages (id, document_id, page_number, text, text_status, char_count, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        "INSERT INTO pages (id, document_id, page_number, text, text_status, char_count, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+         ON CONFLICT(document_id, page_number) DO UPDATE SET
+           text = excluded.text,
+           text_status = excluded.text_status,
+           char_count = excluded.char_count,
+           updated_at = excluded.updated_at",
         rusqlite::params![id, document_id, page_number, text, text_status, char_count, now, now],
     )
     .map_err(|e| e.to_string())?;
@@ -408,4 +413,56 @@ pub fn ocr_page(
     insert_page_text(&conn, &document_id, page_number, &text, "ready")?;
     cache_page_text(&document_id, page_number, &text);
     Ok(OcrStatus::Ok)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn page_text_upsert_preserves_existing_row_id() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute(
+            "CREATE TABLE pages (
+                id TEXT PRIMARY KEY,
+                document_id TEXT NOT NULL,
+                page_number INTEGER NOT NULL,
+                text TEXT,
+                text_status TEXT DEFAULT 'pending',
+                char_count INTEGER DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(document_id, page_number)
+            )",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO pages (id, document_id, page_number, text, text_status, char_count, created_at, updated_at)
+             VALUES ('existing_id', 'doc', 7, 'old', 'ready', 3, 'created', 'created')",
+            [],
+        )
+        .unwrap();
+
+        insert_page_text(&conn, "doc", 7, "new text", "ready").unwrap();
+
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pages WHERE document_id = 'doc' AND page_number = 7",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let (id, text, char_count): (String, String, i64) = conn
+            .query_row(
+                "SELECT id, text, char_count FROM pages WHERE document_id = 'doc' AND page_number = 7",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(count, 1);
+        assert_eq!(id, "existing_id");
+        assert_eq!(text, "new text");
+        assert_eq!(char_count, 8);
+    }
 }

@@ -28,7 +28,8 @@ export default defineConfig(async () => ({
       output: {
         manualChunks: {
           pdfjs: ["pdfjs-dist"],
-          markdown: ["react-markdown"],
+          epub: ["epubjs"],
+          markdown: ["react-markdown", "remark-gfm", "remark-math", "rehype-katex", "katex"],
           vendor: ["react", "react-dom", "zustand"],
         },
       },

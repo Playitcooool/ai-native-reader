@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   ensureDocumentTextReady,
   ensurePagesTextReady,
+  extractPageText,
   normalizeExtractedText,
   PageExtractionQueue,
 } from "../src/features/pdf/pdfTextExtraction";
@@ -20,6 +21,7 @@ function fakePdf(textByPage: Record<number, string>) {
           ? [{ str: textByPage[pageNumber], transform: [1, 0, 0, 1, 0, 0] }]
           : [],
       }),
+      cleanup: vi.fn(),
     })),
   };
 }
@@ -107,6 +109,22 @@ describe("ensurePagesTextReady", () => {
     expect(pdf.getPage.mock.calls.map(([page]: [number]) => page)).toEqual([2, 3, 4]);
   });
 
+  it("uses batched coverage and skips ready pages", async () => {
+    const { invoke } = mockInvoke({ 2: "already indexed" });
+    const pdf = fakePdf({ 3: "three" });
+
+    await ensurePagesTextReady("doc", [2, 3], { pdf, invoke: invoke as any });
+
+    expect(invoke).not.toHaveBeenCalledWith("get_page_text", expect.anything());
+    expect(invoke).toHaveBeenCalledWith("get_pages_text_coverage", {
+      documentId: "doc",
+      startPage: 2,
+      endPage: 3,
+    });
+    expect(pdf.getPage).toHaveBeenCalledTimes(1);
+    expect(pdf.getPage).toHaveBeenCalledWith(3);
+  });
+
   it("reports exact failed pages", async () => {
     const { invoke } = mockInvoke();
     const pdf = fakePdf({ 20: "twenty", 21: "" });
@@ -127,6 +145,21 @@ describe("ensurePagesTextReady", () => {
     await ensureDocumentTextReady("doc", 3, { pdf, invoke: invoke as any });
 
     expect(pdf.getPage.mock.calls.map(([page]: [number]) => page)).toEqual([1, 2, 3]);
+  });
+});
+
+describe("extractPageText", () => {
+  it("cleans up the PDF.js page after extraction", async () => {
+    const cleanup = vi.fn();
+    const pdf = {
+      getPage: vi.fn(async () => ({
+        getTextContent: async () => ({ items: [{ str: "text", transform: [1, 0, 0, 1, 0, 0] }] }),
+        cleanup,
+      })),
+    };
+
+    await expect(extractPageText(pdf as any, 1)).resolves.toMatchObject({ text: "text", charCount: 4 });
+    expect(cleanup).toHaveBeenCalledOnce();
   });
 });
 

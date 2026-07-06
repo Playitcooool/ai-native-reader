@@ -177,7 +177,7 @@ export const useAiStore = create<AiState>((set, get) => ({
       const tokenUnlisten = await listen<{ token: string }>("ai-stream-chunk", (event) => {
         streamBuffer += event.payload.token;
         if (!streamTimer) {
-          streamTimer = setTimeout(() => flushStreamBuffer(set), 50);
+          streamTimer = setTimeout(() => flushStreamBuffer(set), 100);
         }
       });
       unlisten.push(tokenUnlisten);

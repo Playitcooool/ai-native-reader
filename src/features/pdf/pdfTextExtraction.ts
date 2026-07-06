@@ -52,16 +52,21 @@ interface PageTextCoverage {
   char_count: number;
 }
 
-interface PageTextRow {
-  text: string | null;
-  text_status?: string;
-  char_count?: number;
+interface PdfLike {
+  getPage(pageNumber: number): Promise<PdfPageLike>;
+}
+
+interface PdfPageLike {
+  getTextContent(): Promise<{ items: unknown[] }>;
+  getViewport?: (options: { scale: number }) => { width: number; height: number };
+  render?: (options: any) => { promise: Promise<unknown> };
+  cleanup?: () => void;
 }
 
 export interface TextReadinessOptions {
-  pdf?: any;
+  pdf?: PdfLike;
   invoke?: typeof tauriInvoke;
-  ocrPage?: (documentId: string, pageNumber: number, pdf: any) => Promise<TextReadyStatus>;
+  ocrPage?: (documentId: string, pageNumber: number, pdf: PdfLike) => Promise<TextReadyStatus>;
   onPhase?: (phase: string, pageNumber: number) => void;
   isCancelled?: () => boolean;
 }
@@ -70,17 +75,24 @@ export interface TextReadinessOptions {
  * Extract text from a single PDF page.
  */
 export async function extractPageText(
-  pdf: any,
+  pdf: PdfLike,
   pageNumber: number,
 ): Promise<PageExtractionResult> {
   const page = await pdf.getPage(pageNumber);
-  const textContent = await page.getTextContent();
-  const text = joinPdfTextItemsBasic(textContent.items as TextItem[]);
-  return {
-    pageNumber,
-    text,
-    charCount: text.length,
-  };
+  try {
+    const textContent = await page.getTextContent();
+    const textItems = textContent.items.filter((item): item is TextItem =>
+      typeof item === "object" && item !== null && "str" in item
+    );
+    const text = joinPdfTextItemsBasic(textItems);
+    return {
+      pageNumber,
+      text,
+      charCount: text.length,
+    };
+  } finally {
+    page.cleanup?.();
+  }
 }
 
 export function samplePagesForOpen(currentPage: number, pageCount: number): number[] {
@@ -93,21 +105,22 @@ export function samplePagesForOpen(currentPage: number, pageCount: number): numb
 export async function ocrPage(
   documentId: string,
   pageNumber: number,
-  pdf: any,
+  pdf: PdfLike,
   invokeFn: typeof tauriInvoke = tauriInvoke,
 ): Promise<TextReadyStatus> {
   if (!pdf) return "unavailable";
   const page = await pdf.getPage(pageNumber);
+  if (!page.getViewport || !page.render) { page.cleanup?.(); return "unavailable"; }
   const viewport = page.getViewport({ scale: 2 });
   const canvas = document.createElement("canvas");
   canvas.width = Math.ceil(viewport.width);
   canvas.height = Math.ceil(viewport.height);
   const ctx = canvas.getContext("2d");
-  if (!ctx) { page.cleanup(); return "unavailable"; }
+  if (!ctx) { page.cleanup?.(); return "unavailable"; }
   try {
     await page.render({ canvasContext: ctx, viewport }).promise;
   } finally {
-    page.cleanup();
+    page.cleanup?.();
   }
 
   const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
@@ -115,11 +128,6 @@ export async function ocrPage(
   const imagePng = new Uint8Array(await blob.arrayBuffer());
   const status = await invokeFn<string>("ocr_page", { documentId, pageNumber, imagePng });
   return status === "ok" || status === "skipped" ? "ready" : "empty";
-}
-
-async function pageReady(documentId: string, pageNumber: number, invokeFn: typeof tauriInvoke) {
-  const row = await invokeFn<PageTextRow | null>("get_page_text", { documentId, pageNumber });
-  return !!(row?.text?.trim() || (row?.text_status === "ready" && (row.char_count ?? 0) > 0));
 }
 
 export async function ensurePagesTextReady(
@@ -130,10 +138,18 @@ export async function ensurePagesTextReady(
   const invokeFn = options.invoke ?? tauriInvoke;
   const requestedPages = Array.from(new Set(pages.filter((page) => page >= 1))).sort((a, b) => a - b);
   if (requestedPages.length === 0) return { ready: 0, failed: 0, readyPages: [], failedPages: [] };
+  const initialCoverage = await invokeFn<PageTextCoverage[]>("get_pages_text_coverage", {
+    documentId,
+    startPage: requestedPages[0],
+    endPage: requestedPages[requestedPages.length - 1],
+  });
+  const readyBefore = new Set(initialCoverage
+    .filter((page) => page.text_status === "ready" && page.char_count > 0)
+    .map((page) => page.page_number));
 
   for (const pageNumber of requestedPages) {
     if (options.isCancelled?.()) break;
-    if (await pageReady(documentId, pageNumber, invokeFn)) continue;
+    if (readyBefore.has(pageNumber)) continue;
 
     let nativeText = "";
     if (options.pdf) {

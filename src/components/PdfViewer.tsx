@@ -9,7 +9,6 @@ import { invoke } from "@tauri-apps/api/core";
 import { extractToc, type TocNodeInput } from "../features/toc/tocTree";
 import {
   PageExtractionQueue,
-  ensureDocumentTextReady,
   extractPageText,
   samplePagesForOpen,
 } from "../features/pdf/pdfTextExtraction";
@@ -190,7 +189,6 @@ export default function PdfViewer({ documentId, onBackHome, onOpenLibrary, onOpe
   // Load PDF
   useEffect(() => {
     let destroyed = false;
-    let idleTimer: ReturnType<typeof setTimeout> | null = null;
     const loadPdf = async () => {
       try {
         setLoadProgress(0);
@@ -237,7 +235,7 @@ export default function PdfViewer({ documentId, onBackHome, onOpenLibrary, onOpe
         extractionRef.current = eq;
         const samplePages = samplePagesForOpen(currentPage, pdf.numPages);
 
-        const sampledText = await Promise.all(samplePages.map(async (pageNumber) => {
+        await Promise.all(samplePages.map(async (pageNumber) => {
           try {
             const result = await extractPageText(pdf, pageNumber);
             if (result.text.trim()) {
@@ -246,20 +244,9 @@ export default function PdfViewer({ documentId, onBackHome, onOpenLibrary, onOpe
                 pages: [{ pageNumber, text: result.text }],
               });
             }
-            return result.text.trim();
           } catch {
-            return "";
           }
         }));
-
-        if (!destroyed && sampledText.length > 0 && sampledText.every((text) => !text)) {
-          idleTimer = setTimeout(() => {
-            ensureDocumentTextReady(documentId, pdf.numPages, {
-              pdf,
-              isCancelled: () => destroyed,
-            }).then(() => refreshIndexedPageCount(0)).catch(() => {});
-          }, 1000);
-        }
       } catch (err) {
         if (!destroyed) setError(`Failed to load PDF: ${err}`);
       }
@@ -267,7 +254,6 @@ export default function PdfViewer({ documentId, onBackHome, onOpenLibrary, onOpe
     loadPdf();
     return () => {
       destroyed = true;
-      if (idleTimer) clearTimeout(idleTimer);
       extractionRef.current?.destroy();
       pdfRef.current?.destroy();
     };
@@ -284,7 +270,6 @@ export default function PdfViewer({ documentId, onBackHome, onOpenLibrary, onOpe
     if (nextZoom <= 0) return;
     initialZoomAppliedRef.current = true;
     setZoom(nextZoom);
-    invoke("update_last_zoom", { documentId, zoom: nextZoom }).catch(() => {});
   }, [basePageWidth, currentDocument, defaultPdfZoom, documentId, pageCount, setZoom]);
 
   // Update extraction priority when visible range changes
@@ -447,18 +432,12 @@ export default function PdfViewer({ documentId, onBackHome, onOpenLibrary, onOpe
     if (!query.trim()) { setSearchResults([]); return; }
     searchCancelledRef.current = false;
     setIsSearching(true);
-    setSearchPhase("Preparing text");
+    setSearchPhase("Searching indexed pages");
     try {
       if (pdfRef.current && pageCount > 0) {
-        await ensureDocumentTextReady(documentId, pageCount, {
-          pdf: pdfRef.current,
-          isCancelled: () => searchCancelledRef.current,
-          onPhase: (phase, pageNumber) => setSearchPhase(phase === "ocr" ? `OCR page ${pageNumber}` : `Preparing page ${pageNumber}`),
-        });
-        if (searchCancelledRef.current) return;
-        refreshIndexedPageCount(0);
+        extractionRef.current?.enqueueAll(pageCount);
+        refreshIndexedPageCount(250);
       }
-      setSearchPhase("Searching");
       const results = await invoke<Array<{ pageNum: number; context: string }>>("search_pages_text", {
         documentId,
         query,
