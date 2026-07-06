@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import "../pdfjs";
 import { documentDisplayTitle, filterDocumentsByCollection, type Document, useDocumentStore } from "../stores/documentStore";
@@ -80,7 +80,10 @@ export default function CenterViewer({
   const { addToast } = useToast();
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; doc: Document } | null>(null);
   const ctxRef = useRef<HTMLDivElement>(null);
-  const visibleDocuments = filterDocumentsByCollection(documents, selectedCollectionId, documentCollections);
+  const visibleDocuments = useMemo(
+    () => filterDocumentsByCollection(documents, selectedCollectionId, documentCollections),
+    [documents, selectedCollectionId, documentCollections],
+  );
 
   useEffect(() => {
     loadReadingStats();
