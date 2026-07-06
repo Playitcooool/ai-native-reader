@@ -24,7 +24,7 @@ RustyBooks keeps your library, reading state, notes, OCR, and AI context on your
 
 ## Release
 
-Current version: **0.2.16**
+Current version: **0.2.18**
 
 ## Quick Start
 
