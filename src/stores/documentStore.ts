@@ -44,7 +44,11 @@ export function documentDisplayAuthor(doc: Pick<Document, "author">): string {
 }
 
 export function collectionIdsForDocument(memberships: DocumentCollection[], documentId: string): Set<string> {
-  return new Set(memberships.filter((m) => m.document_id === documentId).map((m) => m.collection_id));
+  const ids = new Set<string>();
+  for (const membership of memberships) {
+    if (membership.document_id === documentId) ids.add(membership.collection_id);
+  }
+  return ids;
 }
 
 export const RECENT_COLLECTION_ID = "__recent__";
@@ -56,7 +60,10 @@ export function filterDocumentsByCollection<T extends { id: string; last_opened_
 ): T[] {
   if (selectedCollectionId === null) return documents;
   if (selectedCollectionId === RECENT_COLLECTION_ID) return documents.filter((doc) => doc.last_opened_at);
-  const documentIds = new Set(memberships.filter((m) => m.collection_id === selectedCollectionId).map((m) => m.document_id));
+  const documentIds = new Set<string>();
+  for (const membership of memberships) {
+    if (membership.collection_id === selectedCollectionId) documentIds.add(membership.document_id);
+  }
   return documents.filter((doc) => documentIds.has(doc.id));
 }
 
