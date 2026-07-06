@@ -41,7 +41,12 @@ interface PdfTextLayerProps {
 export default memo(function PdfTextLayer({ page, scale, onSelection, containerWidth, containerHeight, highlights = [] }: PdfTextLayerProps) {
   const layerRef = useRef<HTMLDivElement>(null);
   const [items, setItems] = useState<TextItem[]>([]);
-  const [spans, setSpans] = useState<TextSpan[]>([]);
+  const spans = useMemo(() => {
+    const viewport = page.getViewport({ scale });
+    return items
+      .filter((item) => item.str?.trim().length > 0)
+      .map((item) => buildTextSpan(item, viewport.transform, scale));
+  }, [items, page, scale]);
   const spanHighlightColors = useMemo(() => getHighlightColors(spans, highlights), [spans, highlights]);
 
   useEffect(() => {
@@ -58,13 +63,6 @@ export default memo(function PdfTextLayer({ page, scale, onSelection, containerW
     buildLayer();
     return () => { cancelled = true; };
   }, [page]);
-
-  useEffect(() => {
-    const viewport = page.getViewport({ scale });
-    setSpans(items
-      .filter((item) => item.str?.trim().length > 0)
-      .map((item) => buildTextSpan(item, viewport.transform, scale)));
-  }, [items, page, scale]);
 
   const handleMouseUp = () => {
     const sel = window.getSelection();

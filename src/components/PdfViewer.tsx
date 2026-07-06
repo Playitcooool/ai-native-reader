@@ -25,6 +25,8 @@ import { Icon } from "./Icons";
 import { draftFromSelection } from "../features/ai/aiPanelHelpers";
 import type { Annotation } from "../stores/notesStore";
 
+const EMPTY_ANNOTATIONS: Annotation[] = [];
+
 interface PdfViewerProps {
   documentId: string;
   onBackHome?: () => void;
@@ -637,7 +639,7 @@ export default function PdfViewer({ documentId, onBackHome, onOpenLibrary, onOpe
                   top={pageTops[idx] ?? 0}
                   width={pageWidthAtZoom}
                   height={pageHeightAtZoom}
-                  annotations={annotationsByPage[pageNum] ?? []}
+                  annotations={annotationsByPage[pageNum] ?? EMPTY_ANNOTATIONS}
                   inkToolState={inkToolState}
                   onSelection={handleTextSelection}
                   onGoToPage={goToPage}
