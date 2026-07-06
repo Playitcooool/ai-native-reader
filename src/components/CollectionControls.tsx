@@ -22,16 +22,20 @@ export function CollectionFilterChips({ documents }: { documents: Document[] }) 
   const [newName, setNewName] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  const collectionCounts = useMemo(() => {
-    const documentIds = new Set(documents.map((doc) => doc.id));
+  const { collectionCounts, recentCount } = useMemo(() => {
+    const documentIds = new Set<string>();
+    let recentCount = 0;
+    for (const doc of documents) {
+      documentIds.add(doc.id);
+      if (doc.last_opened_at) recentCount++;
+    }
     const counts = new Map<string, number>();
     for (const membership of documentCollections) {
       if (!documentIds.has(membership.document_id)) continue;
       counts.set(membership.collection_id, (counts.get(membership.collection_id) ?? 0) + 1);
     }
-    return counts;
+    return { collectionCounts: counts, recentCount };
   }, [documents, documentCollections]);
-  const recentCount = useMemo(() => documents.filter((doc) => doc.last_opened_at).length, [documents]);
 
   useEffect(() => {
     if (isCreating) inputRef.current?.focus();
