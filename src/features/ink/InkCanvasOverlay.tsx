@@ -60,7 +60,6 @@ export default function InkCanvasOverlay({
 
   const inks = useMemo<InkAnnotation[]>(() => {
     return annotations
-      .filter((a) => a.type === "ink")
       .map((annotation) => {
         const anchor = parseInkAnchor(annotation.anchor_json);
         return anchor ? { annotation, anchor } : null;
