@@ -131,7 +131,7 @@ export function CollectionAssignmentMenu({ doc, onDone }: { doc: Document; onDon
     removeDocumentFromCollection,
   } = useDocumentStore();
   const { addToast } = useToast();
-  const assignedIds = collectionIdsForDocument(documentCollections, doc.id);
+  const assignedIds = useMemo(() => collectionIdsForDocument(documentCollections, doc.id), [documentCollections, doc.id]);
   const errorMessage = (err: unknown, fallback: string) => err instanceof Error ? err.message : typeof err === "string" ? err : fallback;
 
   const run = async (action: Promise<unknown>, message: string) => {
