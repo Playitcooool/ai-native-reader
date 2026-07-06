@@ -22,20 +22,36 @@ interface NotesState {
   deleteAnnotation: (id: string) => Promise<void>;
 }
 
+const annotationLoads = new Map<string, Promise<void>>();
+
+function annotationLoadKey(documentId: string, pageNumber?: number): string {
+  return `${documentId}:${pageNumber ?? "all"}`;
+}
+
 export const useNotesStore = create<NotesState>((set) => ({
   annotations: [],
   isLoading: false,
   loadAnnotations: async (documentId, pageNumber) => {
+    const key = annotationLoadKey(documentId, pageNumber);
+    const pending = annotationLoads.get(key);
+    if (pending) return pending;
+
     set({ isLoading: true });
-    try {
-      const result = await invoke<Annotation[]>("get_annotations", {
-        input: { document_id: documentId, page_number: pageNumber ?? null },
+    const load = invoke<Annotation[]>("get_annotations", {
+      input: { document_id: documentId, page_number: pageNumber ?? null },
+    })
+      .then((result) => {
+        set({ annotations: result, isLoading: false });
+      })
+      .catch((e) => {
+        set({ isLoading: false });
+        throw e;
+      })
+      .finally(() => {
+        annotationLoads.delete(key);
       });
-      set({ annotations: result, isLoading: false });
-    } catch (e) {
-      set({ isLoading: false });
-      throw e;
-    }
+    annotationLoads.set(key, load);
+    return load;
   },
   deleteAnnotation: async (id) => {
     await invoke("delete_annotation", { annotationId: id });
