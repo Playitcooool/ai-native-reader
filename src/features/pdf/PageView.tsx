@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PDFDocumentProxy, PDFPageProxy } from "pdfjs-dist";
 import type { Annotation } from "../../stores/notesStore";
 import InkCanvasOverlay from "../ink/InkCanvasOverlay";
@@ -59,6 +59,14 @@ export default memo(function PageView({
   const prevZoomRef = useRef(zoom);
   const [phase, setPhase] = useState<Phase>("loading");
   const [errMsg, setErrMsg] = useState<string | null>(null);
+  const { highlightAnnotations, inkAnnotations } = useMemo(() => {
+    const split = { highlightAnnotations: [] as Annotation[], inkAnnotations: [] as Annotation[] };
+    for (const annotation of annotations) {
+      if (annotation.type === "highlight") split.highlightAnnotations.push(annotation);
+      else if (annotation.type === "ink") split.inkAnnotations.push(annotation);
+    }
+    return split;
+  }, [annotations]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -320,7 +328,7 @@ export default memo(function PageView({
             onSelection={handleSelection}
             containerWidth={width}
             containerHeight={height}
-            highlights={annotations.filter((a) => a.type === "highlight")}
+            highlights={highlightAnnotations}
           />
         </div>
       )}
@@ -339,7 +347,7 @@ export default memo(function PageView({
           pageNumber={pageNum}
           width={width}
           height={height}
-          annotations={annotations.filter((a) => a.type === "ink")}
+          annotations={inkAnnotations}
           toolState={inkToolState}
           space="pdf-page"
           renderScale={zoom}
