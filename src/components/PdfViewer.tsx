@@ -19,6 +19,7 @@ import { findPageIndexAtOffset, useVisibleRange } from "../features/pdf/useVisib
 import { computePreferredInitialPdfZoom } from "../features/pdf/pdfInitialZoom";
 import InkToolbarControls from "../features/ink/InkToolbarControls";
 import type { InkToolState } from "../features/ink/inkGeometry";
+import { openExternalUrl } from "../features/links/externalLinks";
 import { useToast } from "./Toast";
 import ShortcutsModal from "./ShortcutsModal";
 import { Icon } from "./Icons";
@@ -496,6 +497,10 @@ export default function PdfViewer({ documentId, onBackHome, onOpenLibrary, onOpe
     });
   }, []);
 
+  const handleOpenExternalUrl = useCallback((url: string) => {
+    openExternalUrl(url).catch(() => addToast({ type: "error", message: "Could not open link." }));
+  }, [addToast]);
+
   // Build visible page list
   const pageNumbers = useMemo(() => {
     const nums: number[] = [];
@@ -656,6 +661,8 @@ export default function PdfViewer({ documentId, onBackHome, onOpenLibrary, onOpe
                   annotations={annotationsByPage[pageNum] ?? []}
                   inkToolState={inkToolState}
                   onSelection={handleTextSelection}
+                  onGoToPage={goToPage}
+                  onOpenExternalUrl={handleOpenExternalUrl}
                 />
               );
             })}

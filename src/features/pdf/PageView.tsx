@@ -3,6 +3,7 @@ import type { PDFDocumentProxy, PDFPageProxy } from "pdfjs-dist";
 import type { Annotation } from "../../stores/notesStore";
 import InkCanvasOverlay from "../ink/InkCanvasOverlay";
 import type { InkToolState } from "../ink/inkGeometry";
+import PdfLinkLayer from "./PdfLinkLayer";
 import PdfTextLayer from "./PdfTextLayer";
 
 interface PageViewProps {
@@ -21,6 +22,8 @@ interface PageViewProps {
     prefix?: string;
     suffix?: string;
   }) => void;
+  onGoToPage: (page: number) => void;
+  onOpenExternalUrl: (url: string) => void;
 }
 
 type Phase = "loading" | "ready" | "error";
@@ -43,6 +46,8 @@ export default memo(function PageView({
   annotations,
   inkToolState,
   onSelection,
+  onGoToPage,
+  onOpenExternalUrl,
 }: PageViewProps) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const frontRef = useRef<HTMLCanvasElement>(null);
@@ -318,6 +323,15 @@ export default memo(function PageView({
             highlights={annotations.filter((a) => a.type === "highlight")}
           />
         </div>
+      )}
+      {pageProxyRef.current && phase === "ready" && (
+        <PdfLinkLayer
+          pdf={pdf}
+          page={pageProxyRef.current}
+          scale={zoom}
+          onGoToPage={onGoToPage}
+          onOpenExternalUrl={onOpenExternalUrl}
+        />
       )}
       {phase === "ready" && (
         <InkCanvasOverlay

@@ -16,17 +16,15 @@ interface OutlineItem {
   items?: OutlineItem[];
 }
 
-// Resolve outline item to a page number
-async function resolvePage(
+export async function resolvePdfDestinationPage(
   pdf: PDFDocumentProxy,
-  item: OutlineItem,
+  destRef: unknown,
 ): Promise<number | null> {
-  if (!item.dest) return null;
   let dest = null;
-  if (typeof item.dest === "string") {
-    dest = await pdf.getDestination(item.dest);
-  } else if (Array.isArray(item.dest)) {
-    dest = item.dest;
+  if (typeof destRef === "string") {
+    dest = await pdf.getDestination(destRef);
+  } else if (Array.isArray(destRef)) {
+    dest = destRef;
   }
   if (!dest || !dest[0]) return null;
   try {
@@ -35,6 +33,15 @@ async function resolvePage(
   } catch {
     return null;
   }
+}
+
+// Resolve outline item to a page number
+async function resolvePage(
+  pdf: PDFDocumentProxy,
+  item: OutlineItem,
+): Promise<number | null> {
+  if (!item.dest) return null;
+  return resolvePdfDestinationPage(pdf, item.dest);
 }
 
 // Flatten outline tree into ordered list with computed end pages

@@ -11,6 +11,7 @@ import InkCanvasOverlay from "../ink/InkCanvasOverlay";
 import InkToolbarControls from "../ink/InkToolbarControls";
 import { parseInkAnchor, type InkToolState } from "../ink/inkGeometry";
 import { draftFromSelection } from "../ai/aiPanelHelpers";
+import { isAllowedExternalUrl, openExternalUrl } from "../links/externalLinks";
 import { percentToChapter } from "./epubProgress";
 import { epubCfiKey, parseEpubCfiAnchor, snapshotFromLocation, type EpubCfiAnchor, type EpubLocationSnapshot } from "./epubAnchors";
 
@@ -32,6 +33,7 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
   const locationDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastWheelTurnRef = useRef(0);
   const wheelDocumentsRef = useRef<Set<Document>>(new Set());
+  const linkDocumentsRef = useRef<Set<Document>>(new Set());
   const { currentDocument, currentPage, setCurrentPage, setTotalPages, loadToc, tocNodes, setActiveTocNodeId } = useDocumentStore();
   const annotations = useNotesStore((s) => s.annotations);
   const loadAnnotations = useNotesStore((s) => s.loadAnnotations);
@@ -212,6 +214,32 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
     wheelDocumentsRef.current.clear();
   }, [handlePageWheel]);
 
+  const handleLinkClick = useCallback((event: MouseEvent) => {
+    const target = event.target as Element | null;
+    const anchor = target?.closest?.("a[href]") as HTMLAnchorElement | null;
+    if (!anchor || !isAllowedExternalUrl(anchor.href)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    openExternalUrl(anchor.href).catch(() => addToast({ type: "error", message: "Could not open link." }));
+  }, [addToast]);
+
+  const attachLinkListeners = useCallback(() => {
+    const contentsList = (renditionRef.current?.getContents?.() ?? []) as Contents | Contents[];
+    for (const contents of Array.isArray(contentsList) ? contentsList : [contentsList]) {
+      const doc = contents.document;
+      if (linkDocumentsRef.current.has(doc)) continue;
+      doc.addEventListener("click", handleLinkClick, true);
+      linkDocumentsRef.current.add(doc);
+    }
+  }, [handleLinkClick]);
+
+  const removeLinkListeners = useCallback(() => {
+    for (const doc of linkDocumentsRef.current) {
+      doc.removeEventListener("click", handleLinkClick, true);
+    }
+    linkDocumentsRef.current.clear();
+  }, [handleLinkClick]);
+
   useEffect(() => {
     let dead = false;
     async function load() {
@@ -248,6 +276,7 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
           applyTheme();
           renderStoredAnnotations();
           attachWheelListeners();
+          attachLinkListeners();
         });
 
         await book.ready;
@@ -280,6 +309,7 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
       dead = true;
       if (locationDebounceRef.current) clearTimeout(locationDebounceRef.current);
       removeWheelListeners();
+      removeLinkListeners();
       renderedAnnotationsRef.current = [];
       renditionRef.current?.destroy();
       bookRef.current?.destroy();

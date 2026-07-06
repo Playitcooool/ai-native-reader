@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeEndPages, type TocNodeInput } from "../src/features/toc/tocTree";
+import { computeEndPages, resolvePdfDestinationPage, type TocNodeInput } from "../src/features/toc/tocTree";
 
 describe("computeEndPages", () => {
   it("computes end pages for flat list", () => {
@@ -54,5 +54,27 @@ describe("computeEndPages", () => {
 
   it("handles empty list", () => {
     expect(computeEndPages([], 50)).toEqual([]);
+  });
+});
+
+describe("resolvePdfDestinationPage", () => {
+  it("resolves named and array PDF destinations", async () => {
+    const ref = {};
+    const pdf = {
+      getDestination: async (name: string) => name === "chapter" ? [ref] : null,
+      getPageIndex: async (pageRef: unknown) => pageRef === ref ? 4 : 0,
+    };
+
+    await expect(resolvePdfDestinationPage(pdf as any, "chapter")).resolves.toBe(5);
+    await expect(resolvePdfDestinationPage(pdf as any, [ref])).resolves.toBe(5);
+    await expect(resolvePdfDestinationPage(pdf as any, "missing")).resolves.toBeNull();
+  });
+
+  it("returns null when pdf.js cannot resolve the page reference", async () => {
+    const pdf = {
+      getPageIndex: async () => { throw new Error("bad ref"); },
+    };
+
+    await expect(resolvePdfDestinationPage(pdf as any, [{}])).resolves.toBeNull();
   });
 });
