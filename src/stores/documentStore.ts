@@ -125,16 +125,10 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
   setDocumentCollections: (documentCollections) => set({ documentCollections }),
   setSelectedCollectionId: (selectedCollectionId) => set({ selectedCollectionId }),
   setCurrentDocument: (doc) => {
-    let selected = doc;
+    const selected = doc ? { ...doc, last_opened_at: new Date().toISOString() } : null;
     if (doc) {
       get().startHeartbeat();
       invoke("mark_document_opened", { documentId: doc.id }).catch(() => {});
-      const opened = { ...doc, last_opened_at: new Date().toISOString() };
-      selected = opened;
-      set((s) => ({
-        documents: [opened, ...s.documents.filter((d) => d.id !== doc.id)],
-        currentDocument: opened,
-      }));
       // EPUBs from bulk import may not have content extracted yet
       if (doc.document_type === 'epub' && doc.parse_status !== 'ready') {
         invoke("extract_epub_content", { documentId: doc.id, filePath: doc.file_path })
@@ -151,13 +145,14 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
     } else {
       get().stopHeartbeat();
     }
-    set({
+    set((s) => ({
+      documents: selected ? [selected, ...s.documents.filter((d) => d.id !== selected.id)] : s.documents,
       currentDocument: selected,
       currentPage: selected?.document_type === 'epub'
         ? percentToChapter(selected.last_page ?? 0, selected.page_count ?? 1)
         : selected?.last_page ?? 1,
       zoom: selected?.last_zoom ?? 1.0,
-    });
+    }));
   },
   setCurrentPage: (page) => set({ currentPage: page }),
   setTotalPages: (count) => set({ totalPages: count }),
