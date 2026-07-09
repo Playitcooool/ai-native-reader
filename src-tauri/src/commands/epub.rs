@@ -6,6 +6,15 @@ use tauri::Manager;
 use tauri::State;
 use uuid::Uuid;
 
+const MAX_COVER_BYTES: usize = 10 * 1024 * 1024;
+
+fn validate_cover_size(size: usize) -> Result<(), String> {
+    if size > MAX_COVER_BYTES {
+        return Err("Cover image is too large to cache safely.".into());
+    }
+    Ok(())
+}
+
 fn covers_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let dir = app
         .path()
@@ -141,7 +150,12 @@ pub fn get_document_cover(
 
 fn get_cached_cover_inner(app: &tauri::AppHandle, document_id: &str) -> Option<Vec<u8>> {
     let path = covers_dir(app).ok()?.join(document_id);
-    if path.exists() {
+    if path.exists()
+        && path
+            .metadata()
+            .ok()
+            .is_some_and(|meta| meta.len() <= MAX_COVER_BYTES as u64)
+    {
         std::fs::read(path).ok()
     } else {
         None
@@ -162,6 +176,18 @@ pub fn cache_cover(
     document_id: String,
     data: Vec<u8>,
 ) -> Result<(), String> {
+    validate_cover_size(data.len())?;
     let path = covers_dir(&app)?.join(&document_id);
     std::fs::write(&path, &data).map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_oversized_cover_cache_payloads() {
+        assert!(validate_cover_size(MAX_COVER_BYTES).is_ok());
+        assert!(validate_cover_size(MAX_COVER_BYTES + 1).is_err());
+    }
 }

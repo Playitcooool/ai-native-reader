@@ -122,6 +122,9 @@ fn scan_folder_into_db(
                         if existing.contains(&path_str) {
                             continue;
                         }
+                        if crate::commands::documents::validate_document_size(&path_str).is_err() {
+                            continue;
+                        }
                         let filename = file_path
                             .file_name()
                             .map(|n| n.to_string_lossy().to_string())
@@ -224,6 +227,11 @@ fn start_watcher(
                     {
                         if ext == "pdf" || ext == "epub" {
                             let path_str = path.to_string_lossy().to_string();
+                            if crate::commands::documents::validate_document_size(&path_str)
+                                .is_err()
+                            {
+                                continue;
+                            }
                             let exists: bool = c
                                 .query_row(
                                     "SELECT COUNT(*) FROM documents WHERE file_path = ?1",

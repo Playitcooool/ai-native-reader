@@ -5,6 +5,22 @@ use std::path::PathBuf;
 use tauri::State;
 use uuid::Uuid;
 
+const MAX_DOCUMENT_BYTES: u64 = 512 * 1024 * 1024;
+
+fn validate_document_size_value(size: u64) -> Result<(), String> {
+    if size > MAX_DOCUMENT_BYTES {
+        return Err("Document is too large to open safely. Limit is 512 MiB.".into());
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_document_size(file_path: &str) -> Result<(), String> {
+    let size = std::fs::metadata(file_path)
+        .map_err(|e| format!("Failed to inspect document: {}", e))?
+        .len();
+    validate_document_size_value(size)
+}
+
 #[tauri::command]
 pub fn import_document(db: State<DbState>, file_path: String) -> Result<Document, String> {
     let path = PathBuf::from(&file_path);
@@ -18,10 +34,17 @@ pub fn import_document(db: State<DbState>, file_path: String) -> Result<Document
         .and_then(|e| e.to_str())
         .map(|e| match e.to_lowercase().as_str() {
             "epub" => "epub".to_string(),
-            _ => "pdf".to_string(),
+            "pdf" => "pdf".to_string(),
+            _ => "unsupported".to_string(),
         })
         .unwrap_or_else(|| "pdf".to_string());
+    if doc_type == "unsupported" {
+        return Err("Only PDF and EPUB documents can be imported.".into());
+    }
     let access_bookmark = crate::file_access::create_bookmark(&file_path, false);
+    crate::file_access::with_access(&file_path, access_bookmark.as_deref(), || {
+        validate_document_size(&file_path)
+    })?;
 
     // Extract metadata from PDFs; EPUB metadata extracted later by extract_epub_content
     let (meta_title, meta_author) = if doc_type == "pdf" {
@@ -160,6 +183,9 @@ pub fn read_document_bytes(db: State<DbState>, document_id: String) -> Result<Ve
         })?
     };
 
+    crate::file_access::with_access(&file_path, access_bookmark.as_deref(), || {
+        validate_document_size(&file_path)
+    })?;
     crate::file_access::read(&file_path, access_bookmark.as_deref())
 }
 
@@ -472,5 +498,11 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM annotations", [], |row| row.get(0))
             .unwrap();
         assert_eq!(notes, 1);
+    }
+
+    #[test]
+    fn rejects_oversized_documents() {
+        assert!(validate_document_size_value(MAX_DOCUMENT_BYTES).is_ok());
+        assert!(validate_document_size_value(MAX_DOCUMENT_BYTES + 1).is_err());
     }
 }
