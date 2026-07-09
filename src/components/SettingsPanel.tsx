@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { save } from "@tauri-apps/plugin-dialog";
+import { open, save } from "@tauri-apps/plugin-dialog";
 import {
   useSettingsStore,
   type DefaultEpubFontSize,
@@ -66,6 +66,7 @@ export default function SettingsPanel() {
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [exportingBackup, setExportingBackup] = useState(false);
+  const [restoringBackup, setRestoringBackup] = useState(false);
   const initialLoadDone = useRef(false);
 
   // Populate form from saved settings — only from blank state, never after save
@@ -152,6 +153,26 @@ export default function SettingsPanel() {
       setStatus({ ok: false, msg: `Backup failed: ${err}` });
     } finally {
       setExportingBackup(false);
+    }
+  };
+
+  const handleRestoreBackup = async () => {
+    if (restoringBackup) return;
+    if (!window.confirm("Restore this backup? This replaces your current local library, notes, AI history, reading state, and saved provider settings.")) return;
+    setRestoringBackup(true);
+    setStatus(null);
+    try {
+      const sourcePath = await open({
+        multiple: false,
+        filters: [{ name: "SQLite database", extensions: ["db"] }],
+      });
+      if (!sourcePath || Array.isArray(sourcePath)) return;
+      await invoke("restore_database_backup", { sourcePath });
+      setStatus({ ok: true, msg: "Backup restored. Restart RustyBooks to reload restored data." });
+    } catch (err) {
+      setStatus({ ok: false, msg: `Restore failed: ${err}` });
+    } finally {
+      setRestoringBackup(false);
     }
   };
 
@@ -368,6 +389,9 @@ export default function SettingsPanel() {
           <p className="settings-muted">Export a local SQLite backup of your library, notes, AI history, reading state, and saved provider settings.</p>
           <button type="button" className="settings-primary-button" onClick={handleExportBackup} disabled={exportingBackup}>
             {exportingBackup ? "Exporting..." : "Export Backup"}
+          </button>
+          <button type="button" className="settings-danger-button" onClick={handleRestoreBackup} disabled={restoringBackup}>
+            {restoringBackup ? "Restoring..." : "Restore Backup"}
           </button>
           {status && (
             <p className={status.ok ? "settings-status-ok" : "settings-status-error"}>

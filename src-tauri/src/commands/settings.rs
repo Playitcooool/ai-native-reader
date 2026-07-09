@@ -1,5 +1,6 @@
 use crate::db::models::{ProviderSettings, ProviderSettingsInput, TestProviderResult};
 use chrono::Utc;
+use rusqlite::DatabaseName;
 use std::path::Path;
 use std::sync::Mutex;
 use tauri::State;
@@ -53,6 +54,47 @@ fn backup_database_for_conn(
     conn.execute("VACUUM main INTO ?1", [destination_path])
         .map(|_| ())
         .map_err(|e| e.to_string())
+}
+
+fn validate_backup_source(conn: &rusqlite::Connection) -> Result<(), String> {
+    let quick_check: String = conn
+        .query_row("PRAGMA quick_check", [], |row| row.get(0))
+        .map_err(|e| format!("Backup is not readable: {e}"))?;
+    if quick_check != "ok" {
+        return Err("Backup failed SQLite integrity check.".into());
+    }
+
+    let documents_table: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'documents'",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|e| format!("Backup schema could not be checked: {e}"))?;
+    if documents_table == 0 {
+        return Err("Backup does not look like a RustyBooks database.".into());
+    }
+
+    Ok(())
+}
+
+fn restore_database_for_conn(
+    conn: &mut rusqlite::Connection,
+    source_path: &str,
+) -> Result<(), String> {
+    let source = Path::new(source_path);
+    if !source.exists() {
+        return Err("Backup file does not exist.".into());
+    }
+    let source_conn = rusqlite::Connection::open(source)
+        .map_err(|e| format!("Backup could not be opened: {e}"))?;
+    validate_backup_source(&source_conn)?;
+    conn.restore(
+        DatabaseName::Main,
+        source,
+        None::<fn(rusqlite::backup::Progress)>,
+    )
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -175,6 +217,12 @@ pub fn export_database_backup(db: State<DbState>, destination_path: String) -> R
     backup_database_for_conn(&conn, &destination_path)
 }
 
+#[tauri::command]
+pub fn restore_database_backup(db: State<DbState>, source_path: String) -> Result<(), String> {
+    let mut conn = db.0.lock().map_err(|e| e.to_string())?;
+    restore_database_for_conn(&mut conn, &source_path)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -227,6 +275,35 @@ mod tests {
             .unwrap();
         fs::remove_file(path).unwrap();
         assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn restores_sqlite_backup_file() {
+        let mut conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute("CREATE TABLE documents (id TEXT PRIMARY KEY)", [])
+            .unwrap();
+        conn.execute("INSERT INTO documents (id) VALUES ('old')", [])
+            .unwrap();
+
+        let source_path =
+            std::env::temp_dir().join(format!("rustybooks-restore-test-{}.db", std::process::id()));
+        let _ = fs::remove_file(&source_path);
+        let source = rusqlite::Connection::open(&source_path).unwrap();
+        source
+            .execute("CREATE TABLE documents (id TEXT PRIMARY KEY)", [])
+            .unwrap();
+        source
+            .execute("INSERT INTO documents (id) VALUES ('new')", [])
+            .unwrap();
+        drop(source);
+
+        restore_database_for_conn(&mut conn, source_path.to_str().unwrap()).unwrap();
+
+        let id: String = conn
+            .query_row("SELECT id FROM documents", [], |row| row.get(0))
+            .unwrap();
+        fs::remove_file(source_path).unwrap();
+        assert_eq!(id, "new");
     }
 }
 

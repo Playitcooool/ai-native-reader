@@ -167,6 +167,7 @@ pub fn run() {
             commands::settings::set_default_provider,
             commands::settings::test_provider,
             commands::settings::export_database_backup,
+            commands::settings::restore_database_backup,
             commands::ai::get_or_create_ai_session,
             commands::ai::list_ai_sessions,
             commands::ai::get_session_messages,
