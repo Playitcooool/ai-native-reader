@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { describeAiScope, draftFromSelection, shouldFollowScroll } from "../src/features/ai/aiPanelHelpers";
+import { describeAiScope, draftFromSelection, formatAiError, shouldFollowScroll } from "../src/features/ai/aiPanelHelpers";
 
 describe("shouldFollowScroll", () => {
   it("follows when near the bottom", () => {
@@ -22,5 +22,14 @@ describe("describeAiScope", () => {
     expect(describeAiScope([3])).toBe("Sends page 3 text");
     expect(describeAiScope([5, 3, 4])).toBe("Sends 3 pages: 3-5");
     expect(describeAiScope([2], "epub")).toBe("Sends chapter 2 text");
+  });
+});
+
+describe("formatAiError", () => {
+  it("turns provider failures into useful messages", () => {
+    expect(formatAiError("AI request failed: timeout")).toContain("timed out");
+    expect(formatAiError("AI request failed: network_error")).toContain("Could not reach");
+    expect(formatAiError("AI request failed: provider_error: HTTP 401 - nope")).toContain("HTTP 401");
+    expect(formatAiError("Missing api_key")).toBe("This provider needs an API key in Settings.");
   });
 });

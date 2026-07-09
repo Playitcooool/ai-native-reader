@@ -4,7 +4,7 @@ import { documentDisplayTitle, useDocumentStore } from "../stores/documentStore"
 import { type AiMessage, type AiSessionListItem, useAiStore } from "../stores/aiStore";
 import { useUndoStore } from "../stores/undoStore";
 import { inferAskScope, scopeFromTocNode } from "../features/ai/promptScope";
-import { describeAiScope, draftFromSelection, shouldFollowScroll } from "../features/ai/aiPanelHelpers";
+import { describeAiScope, draftFromSelection, formatAiError, shouldFollowScroll } from "../features/ai/aiPanelHelpers";
 import { pagesNeededForWorkflow } from "../features/ai/workflowPages";
 import { useToast } from "./Toast";
 import { Icon } from "./Icons";
@@ -143,7 +143,7 @@ export default function AiSidebar({ draftInput, onDraftConsumed }: AiSidebarProp
     try {
       await fn();
     } catch (err) {
-      addToast({ type: "error", message: `${label}: ${err}` });
+      addToast({ type: "error", message: `${label}: ${formatAiError(err)}` });
     }
   }, [addToast]);
 
@@ -339,7 +339,7 @@ export default function AiSidebar({ draftInput, onDraftConsumed }: AiSidebarProp
           </button>
         )}
         {lastWorkflowInput && !isGenerating && (
-          <button className="ai-ghost-button" onClick={() => retryLastWorkflow().catch((err) => addToast({ type: "error", message: `AI retry failed: ${err}` }))}>
+          <button className="ai-ghost-button" onClick={() => retryLastWorkflow().catch((err) => addToast({ type: "error", message: `AI retry failed: ${formatAiError(err)}` }))}>
             Retry
           </button>
         )}

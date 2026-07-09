@@ -18,3 +18,13 @@ export function describeAiScope(pages: number[], documentType = "pdf"): string {
   if (clean.length === 1) return `Sends ${unit} ${clean[0]} text`;
   return `Sends ${clean.length} ${unit}s: ${clean[0]}-${clean[clean.length - 1]}`;
 }
+
+export function formatAiError(error: unknown): string {
+  const text = String(error);
+  if (text.includes("timeout")) return "The AI provider timed out. Try a smaller scope or a faster model.";
+  if (text.includes("network_error")) return "Could not reach the AI provider. Check the base URL and whether the server is running.";
+  const provider = text.match(/provider_error: HTTP (\d+)/);
+  if (provider) return `The AI provider returned HTTP ${provider[1]}. Check the model, key, and provider logs.`;
+  if (text.includes("Missing api_key") || text.includes("missing an API key")) return "This provider needs an API key in Settings.";
+  return text.replace(/^Error:\s*/, "");
+}
