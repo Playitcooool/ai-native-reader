@@ -346,7 +346,13 @@ pub async fn compact_session(
     };
 
     let base_url = base_url.ok_or("Missing base_url")?;
-    let api_key = api_key.ok_or("Missing api_key")?;
+    let api_key = match api_key {
+        Some(key) => key,
+        None if crate::ai::provider::provider_requires_api_key(&provider_type) => {
+            return Err("Missing api_key".into())
+        }
+        None => String::new(),
+    };
 
     // Call AI for compaction
     let result = provider::chat_completion(
@@ -728,7 +734,13 @@ pub async fn run_ai_workflow(
         };
         let (pt, bu, ak, m) = provider_row;
         let base_url_val = bu.ok_or("Missing base_url")?;
-        let api_key_val = ak.ok_or("Missing api_key")?;
+        let api_key_val = match ak {
+            Some(key) => key,
+            None if crate::ai::provider::provider_requires_api_key(&pt) => {
+                return Err("Missing api_key".into())
+            }
+            None => String::new(),
+        };
         provider_type = pt;
         base_url = base_url_val;
         api_key = api_key_val;

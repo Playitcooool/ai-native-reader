@@ -75,6 +75,10 @@ pub struct TestResult {
     pub error_message: Option<String>,
 }
 
+pub fn provider_requires_api_key(provider_type: &str) -> bool {
+    !matches!(provider_type, "lm_studio" | "ollama")
+}
+
 /// Call the OpenAI-compatible /chat/completions endpoint.
 pub async fn chat_completion(
     client: &reqwest::Client,
@@ -109,12 +113,15 @@ pub async fn chat_completion(
         stream: None,
     };
 
-    let response = client
+    let mut request = client
         .post(&url)
-        .header("Authorization", format!("Bearer {}", api_key))
         .header("Content-Type", "application/json")
         .header(ACCEPT_ENCODING, "identity")
-        .json(&body)
+        .json(&body);
+    if !api_key.is_empty() {
+        request = request.header("Authorization", format!("Bearer {}", api_key));
+    }
+    let response = request
         .timeout(std::time::Duration::from_secs(60))
         .send()
         .await
@@ -202,13 +209,16 @@ pub async fn chat_completion_stream(
         max_tokens,
         stream: Some(true),
     };
-    let response = client
+    let mut request = client
         .post(&url)
-        .header("Authorization", format!("Bearer {}", api_key))
         .header("Content-Type", "application/json")
         .header("Accept", "text/event-stream")
         .header(ACCEPT_ENCODING, "identity")
-        .json(&body)
+        .json(&body);
+    if !api_key.is_empty() {
+        request = request.header("Authorization", format!("Bearer {}", api_key));
+    }
+    let response = request
         .timeout(std::time::Duration::from_secs(120))
         .send()
         .await
@@ -553,5 +563,18 @@ fn provider_request_error(e: reqwest::Error) -> String {
         "network_error".to_string()
     } else {
         format!("unknown: {}", e)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn local_providers_do_not_require_api_keys() {
+        assert!(!provider_requires_api_key("lm_studio"));
+        assert!(!provider_requires_api_key("ollama"));
+        assert!(provider_requires_api_key("openai_compatible"));
+        assert!(provider_requires_api_key("anthropic"));
     }
 }

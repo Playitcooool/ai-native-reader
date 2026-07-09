@@ -67,7 +67,13 @@ pub async fn translate_text(
     };
 
     let base_url = base_url.ok_or("Provider is missing a base URL. Check Settings.")?;
-    let api_key = api_key.ok_or("Provider is missing an API key. Check Settings.")?;
+    let api_key = match api_key {
+        Some(key) => key,
+        None if crate::ai::provider::provider_requires_api_key(&provider_type) => {
+            return Err("Provider is missing an API key. Check Settings.".into())
+        }
+        None => String::new(),
+    };
 
     let (system, user) = prompts::translate(&input.selected_text);
     let messages = vec![
