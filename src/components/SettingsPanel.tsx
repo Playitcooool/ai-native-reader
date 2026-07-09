@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { save } from "@tauri-apps/plugin-dialog";
 import {
   useSettingsStore,
   type DefaultEpubFontSize,
@@ -64,6 +65,7 @@ export default function SettingsPanel() {
   const [status, setStatus] = useState<{ ok: boolean; msg: string } | null>(null);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [exportingBackup, setExportingBackup] = useState(false);
   const initialLoadDone = useRef(false);
 
   // Populate form from saved settings — only from blank state, never after save
@@ -131,6 +133,25 @@ export default function SettingsPanel() {
       setStatus({ ok: false, msg: `Error: ${err}` });
     } finally {
       setTesting(false);
+    }
+  };
+
+  const handleExportBackup = async () => {
+    if (exportingBackup) return;
+    setExportingBackup(true);
+    setStatus(null);
+    try {
+      const destinationPath = await save({
+        defaultPath: `rustybooks-backup-${new Date().toISOString().slice(0, 10)}.db`,
+        filters: [{ name: "SQLite database", extensions: ["db"] }],
+      });
+      if (!destinationPath) return;
+      await invoke("export_database_backup", { destinationPath });
+      setStatus({ ok: true, msg: "Backup exported." });
+    } catch (err) {
+      setStatus({ ok: false, msg: `Backup failed: ${err}` });
+    } finally {
+      setExportingBackup(false);
     }
   };
 
@@ -344,6 +365,15 @@ export default function SettingsPanel() {
 
         <section className="settings-form-section" hidden={section !== "data"}>
           <h3>Data</h3>
+          <p className="settings-muted">Export a local SQLite backup of your library, notes, AI history, reading state, and saved provider settings.</p>
+          <button type="button" className="settings-primary-button" onClick={handleExportBackup} disabled={exportingBackup}>
+            {exportingBackup ? "Exporting..." : "Export Backup"}
+          </button>
+          {status && (
+            <p className={status.ok ? "settings-status-ok" : "settings-status-error"}>
+              {status.msg}
+            </p>
+          )}
           <p className="settings-muted">Reset only theme, UI font, reading defaults, and sidebar preference.</p>
           <button type="button" className="settings-danger-button" onClick={resetUiPreferences}>
             Reset UI preferences

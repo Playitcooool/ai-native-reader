@@ -1,5 +1,6 @@
 use crate::db::models::{ProviderSettings, ProviderSettingsInput, TestProviderResult};
 use chrono::Utc;
+use std::path::Path;
 use std::sync::Mutex;
 use tauri::State;
 use uuid::Uuid;
@@ -34,6 +35,24 @@ fn api_key_for_update(
     existing_api_key: Option<String>,
 ) -> Option<String> {
     input_api_key.or(existing_api_key)
+}
+
+fn backup_database_for_conn(
+    conn: &rusqlite::Connection,
+    destination_path: &str,
+) -> Result<(), String> {
+    let destination = Path::new(destination_path);
+    if destination.exists() {
+        return Err("Backup file already exists. Choose a new file name.".into());
+    }
+    if let Some(parent) = destination.parent() {
+        if !parent.exists() {
+            return Err("Backup folder does not exist.".into());
+        }
+    }
+    conn.execute("VACUUM main INTO ?1", [destination_path])
+        .map(|_| ())
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -150,9 +169,16 @@ pub fn save_provider_settings(
     }
 }
 
+#[tauri::command]
+pub fn export_database_backup(db: State<DbState>, destination_path: String) -> Result<(), String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    backup_database_for_conn(&conn, &destination_path)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
 
     #[test]
     fn provider_settings_response_redacts_api_key() {
@@ -180,6 +206,27 @@ mod tests {
             api_key_for_update(Some("replacement".into()), Some("existing".into())),
             Some("replacement".into())
         );
+    }
+
+    #[test]
+    fn exports_sqlite_backup_file() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute("CREATE TABLE documents (id TEXT PRIMARY KEY)", [])
+            .unwrap();
+        conn.execute("INSERT INTO documents (id) VALUES ('doc1')", [])
+            .unwrap();
+
+        let path =
+            std::env::temp_dir().join(format!("rustybooks-backup-test-{}.db", std::process::id()));
+        let _ = fs::remove_file(&path);
+        backup_database_for_conn(&conn, path.to_str().unwrap()).unwrap();
+
+        let backup = rusqlite::Connection::open(&path).unwrap();
+        let count: i64 = backup
+            .query_row("SELECT COUNT(*) FROM documents", [], |row| row.get(0))
+            .unwrap();
+        fs::remove_file(path).unwrap();
+        assert_eq!(count, 1);
     }
 }
 
