@@ -1222,11 +1222,20 @@
 
 .ai-composer {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   padding: 10px 12px 12px;
   border-top: 1px solid var(--border-color);
   flex-shrink: 0;
   background: var(--bg-primary);
+}
+
+.ai-scope-preview {
+  flex: 1 0 100%;
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.3;
 }
 
 .ai-composer textarea {

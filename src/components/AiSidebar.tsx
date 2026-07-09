@@ -4,7 +4,8 @@ import { documentDisplayTitle, useDocumentStore } from "../stores/documentStore"
 import { type AiMessage, type AiSessionListItem, useAiStore } from "../stores/aiStore";
 import { useUndoStore } from "../stores/undoStore";
 import { inferAskScope, scopeFromTocNode } from "../features/ai/promptScope";
-import { draftFromSelection, shouldFollowScroll } from "../features/ai/aiPanelHelpers";
+import { describeAiScope, draftFromSelection, shouldFollowScroll } from "../features/ai/aiPanelHelpers";
+import { pagesNeededForWorkflow } from "../features/ai/workflowPages";
 import { useToast } from "./Toast";
 import { Icon } from "./Icons";
 const AiMarkdown = lazy(() => import("./AiMarkdown"));
@@ -106,6 +107,37 @@ export default function AiSidebar({ draftInput, onDraftConsumed }: AiSidebarProp
     if (maxPage && (start > maxPage || end > maxPage)) return null;
     return { start: Math.min(start, end), end: Math.max(start, end) };
   }, [rangeStart, rangeEnd, maxPage]);
+  const rangeScopePreview = useMemo(() => {
+    if (!currentDocument || !parsedRange) return "";
+    const pages = pagesNeededForWorkflow({
+      mode: "range_summary",
+      pageNumber: currentPage,
+      pageCount: currentDocument.page_count,
+      startPage: parsedRange.start,
+      endPage: parsedRange.end,
+    });
+    return describeAiScope(pages, currentDocument.document_type);
+  }, [currentDocument, currentPage, parsedRange]);
+  const askScopePreview = useMemo(() => {
+    if (!currentDocument) return "";
+    const question = input.trim();
+    if (!question) return describeAiScope([currentPage], currentDocument.document_type);
+    const scope = askScopeMode === "chapter" && selectedTocNode
+      ? scopeFromTocNode(selectedTocNode)
+      : inferAskScope(question, currentPage, tocNodes, currentDocument.page_count ?? 0);
+    const startPage = scope.kind === "range" || scope.kind === "section" ? scope.startPage : undefined;
+    const endPage = scope.kind === "range" || scope.kind === "section" ? scope.endPage : undefined;
+    const pageNumbers = scope.kind === "pages" ? scope.pages : undefined;
+    const pages = pagesNeededForWorkflow({
+      mode: scope.kind === "pages" ? "pages_qa" : scope.kind === "range" ? "range_qa" : "chapter_qa",
+      pageNumber: pageNumbers?.[0] ?? startPage ?? currentPage,
+      pageCount: currentDocument.page_count,
+      startPage,
+      endPage,
+      pageNumbers,
+    });
+    return describeAiScope(pages, currentDocument.document_type);
+  }, [askScopeMode, currentDocument, currentPage, input, selectedTocNode, tocNodes]);
 
   const runSafely = useCallback(async (fn: () => Promise<void>, label: string) => {
     try {
@@ -318,6 +350,7 @@ export default function AiSidebar({ draftInput, onDraftConsumed }: AiSidebarProp
           <label>From <input type="number" value={rangeStart} onChange={(e) => setRangeStart(e.target.value)} min={1} max={maxPage || undefined} placeholder="1" /></label>
           <label>To <input type="number" value={rangeEnd} onChange={(e) => setRangeEnd(e.target.value)} min={1} max={maxPage || undefined} placeholder={String(maxPage || 1)} /></label>
           <button className="ai-primary-button" onClick={handleSummarizeRange} disabled={isGenerating || !parsedRange}>Go</button>
+          {rangeScopePreview && <span className="ai-scope-preview">{rangeScopePreview}</span>}
         </div>
       )}
 
@@ -415,6 +448,7 @@ export default function AiSidebar({ draftInput, onDraftConsumed }: AiSidebarProp
       </div>
 
       <div className="ai-composer">
+        <div className="ai-scope-preview">{askScopePreview}</div>
         <textarea
           ref={inputRef}
           value={input}
