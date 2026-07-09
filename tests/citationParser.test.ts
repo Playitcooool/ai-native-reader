@@ -50,6 +50,12 @@ describe("linkCitationMarkdown", () => {
     );
   });
 
+  it("does not link citations outside the document page count", () => {
+    expect(linkCitationMarkdown("See [p.2] and [p.99].", 10)).toBe(
+      "See [p.2](ai-page://2) and [p.99].",
+    );
+  });
+
   it("ignores citations in fenced code blocks", () => {
     expect(linkCitationMarkdown("Before [p.1]\n```\n[p.2]\n```\nAfter [p.3]")).toBe(
       "Before [p.1](ai-page://1)\n```\n[p.2]\n```\nAfter [p.3](ai-page://3)",

@@ -21,7 +21,7 @@ export function parseCitations(text: string): CitationRef[] {
   return refs;
 }
 
-export function linkCitationMarkdown(markdown: string): string {
+export function linkCitationMarkdown(markdown: string, maxPage?: number | null): string {
   let inFence = false;
   let inMathFence = false;
 
@@ -37,12 +37,16 @@ export function linkCitationMarkdown(markdown: string): string {
         inMathFence = !inMathFence;
         return part;
       }
-      return inFence || inMathFence ? part : linkCitationLine(part);
+      return inFence || inMathFence ? part : linkCitationLine(part, maxPage);
     })
     .join("");
 }
 
-function linkCitationLine(line: string): string {
+function isValidCitationPage(page: number, maxPage?: number | null): boolean {
+  return page >= 1 && (!maxPage || page <= maxPage);
+}
+
+function linkCitationLine(line: string, maxPage?: number | null): string {
   let out = "";
   for (let i = 0; i < line.length;) {
     const char = line[i];
@@ -63,7 +67,8 @@ function linkCitationLine(line: string): string {
     }
     const match = line.slice(i).match(CITATION_AT_START_REGEX);
     if (match) {
-      out += `${match[0]}(ai-page://${match[1]})`;
+      const page = parseInt(match[1], 10);
+      out += isValidCitationPage(page, maxPage) ? `${match[0]}(ai-page://${match[1]})` : match[0];
       i += match[0].length;
       continue;
     }

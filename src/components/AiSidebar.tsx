@@ -371,7 +371,7 @@ export default function AiSidebar({ draftInput, onDraftConsumed }: AiSidebarProp
             <div className="ai-message-label">{msg.role === "user" ? "You" : "AI"}</div>
             {msg.role === "assistant" ? (
               <Suspense fallback={<div className="ai-user-text">{msg.content}</div>}>
-                <AiMarkdown onPageLink={jumpToPage}>{msg.content}</AiMarkdown>
+                <AiMarkdown onPageLink={jumpToPage} maxPage={currentDocument.page_count}>{msg.content}</AiMarkdown>
               </Suspense>
             ) : <div className="ai-user-text">{msg.content}</div>}
             {msg.role === "assistant" && contextWarnings(msg).length > 0 && (
@@ -405,7 +405,7 @@ export default function AiSidebar({ draftInput, onDraftConsumed }: AiSidebarProp
               <button onClick={cancelWorkflow} title="Cancel">Cancel</button>
             </div>
             <Suspense fallback={<div className="ai-user-text" style={{ whiteSpace: "pre-wrap" }}>{streamingContent}</div>}>
-              <AiMarkdown onPageLink={jumpToPage}>{streamingContent}</AiMarkdown>
+              <AiMarkdown onPageLink={jumpToPage} maxPage={currentDocument.page_count}>{streamingContent}</AiMarkdown>
             </Suspense>
           </article>
         )}

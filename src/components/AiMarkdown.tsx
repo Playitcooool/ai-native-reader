@@ -9,9 +9,10 @@ import { isAllowedExternalUrl, openExternalUrl } from "../features/links/externa
 interface AiMarkdownProps {
   children: string;
   onPageLink?: (pageNumber: number) => void;
+  maxPage?: number | null;
 }
 
-export default function AiMarkdown({ children, onPageLink }: AiMarkdownProps) {
+export default function AiMarkdown({ children, onPageLink, maxPage }: AiMarkdownProps) {
   return (
     <div className="markdown-content">
       <ReactMarkdown
@@ -48,7 +49,7 @@ export default function AiMarkdown({ children, onPageLink }: AiMarkdownProps) {
           },
         }}
       >
-        {linkCitationMarkdown(children)}
+        {linkCitationMarkdown(children, maxPage)}
       </ReactMarkdown>
     </div>
   );
