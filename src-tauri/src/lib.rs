@@ -5,6 +5,7 @@ pub mod epub;
 pub mod file_access;
 pub mod ocr;
 pub mod pdf;
+pub mod secrets;
 
 use commands::library::LibraryState;
 use commands::settings::DbState;

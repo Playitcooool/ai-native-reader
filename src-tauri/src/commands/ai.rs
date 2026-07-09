@@ -322,20 +322,21 @@ pub async fn compact_session(
     );
 
     // Get provider settings for compaction
-    let (provider_type, base_url, api_key, model) = {
+    let (provider_id, provider_type, base_url, api_key, model) = {
         let conn = db.0.lock().map_err(|e| e.to_string())?;
         let mut stmt = conn
             .prepare(
-                "SELECT provider_type, base_url, api_key, model FROM provider_settings WHERE is_default = 1 LIMIT 1",
+                "SELECT id, provider_type, base_url, api_key, model FROM provider_settings WHERE is_default = 1 LIMIT 1",
             )
             .map_err(|e| e.to_string())?;
         let mut rows = stmt
             .query_map([], |row| {
                 Ok((
                     row.get::<_, String>(0)?,
-                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, String>(1)?,
                     row.get::<_, Option<String>>(2)?,
-                    row.get::<_, String>(3)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, String>(4)?,
                 ))
             })
             .map_err(|e| e.to_string())?;
@@ -346,6 +347,7 @@ pub async fn compact_session(
     };
 
     let base_url = base_url.ok_or("Missing base_url")?;
+    let api_key = crate::secrets::provider_api_key(&provider_id, api_key)?;
     let api_key = match api_key {
         Some(key) => key,
         None if crate::ai::provider::provider_requires_api_key(&provider_type) => {
@@ -710,16 +712,17 @@ pub async fn run_ai_workflow(
         let provider_row = {
             let mut stmt = conn
                 .prepare(
-                    "SELECT provider_type, base_url, api_key, model FROM provider_settings WHERE is_default = 1 LIMIT 1",
+                    "SELECT id, provider_type, base_url, api_key, model FROM provider_settings WHERE is_default = 1 LIMIT 1",
                 )
                 .map_err(|e| e.to_string())?;
             let mut rows = stmt
                 .query_map([], |row| {
                     Ok((
                         row.get::<_, String>(0)?,
-                        row.get::<_, Option<String>>(1)?,
+                        row.get::<_, String>(1)?,
                         row.get::<_, Option<String>>(2)?,
-                        row.get::<_, String>(3)?,
+                        row.get::<_, Option<String>>(3)?,
+                        row.get::<_, String>(4)?,
                     ))
                 })
                 .map_err(|e| e.to_string())?;
@@ -732,8 +735,9 @@ pub async fn run_ai_workflow(
                 }
             }
         };
-        let (pt, bu, ak, m) = provider_row;
+        let (provider_id, pt, bu, ak, m) = provider_row;
         let base_url_val = bu.ok_or("Missing base_url")?;
+        let ak = crate::secrets::provider_api_key(&provider_id, ak)?;
         let api_key_val = match ak {
             Some(key) => key,
             None if crate::ai::provider::provider_requires_api_key(&pt) => {

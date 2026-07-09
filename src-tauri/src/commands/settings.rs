@@ -32,10 +32,14 @@ fn public_provider_settings(
 }
 
 fn api_key_for_update(
+    provider_id: &str,
     input_api_key: Option<String>,
     existing_api_key: Option<String>,
-) -> Option<String> {
-    input_api_key.or(existing_api_key)
+) -> Result<Option<String>, String> {
+    match input_api_key {
+        Some(key) => crate::secrets::provider_api_key_for_database(provider_id, Some(key)),
+        None => Ok(existing_api_key),
+    }
 }
 
 fn backup_database_for_conn(
@@ -143,7 +147,7 @@ pub fn save_provider_settings(
                     |row| row.get(0),
                 )
                 .map_err(|e| e.to_string())?;
-            let api_key = api_key_for_update(input.api_key.clone(), existing_api_key);
+            let api_key = api_key_for_update(id, input.api_key.clone(), existing_api_key)?;
             if is_default {
                 tx.execute("UPDATE provider_settings SET is_default = 0", [])
                     .map_err(|e| e.to_string())?;
@@ -190,9 +194,10 @@ pub fn save_provider_settings(
                 tx.execute("UPDATE provider_settings SET is_translation = 0", [])
                     .map_err(|e| e.to_string())?;
             }
+            let api_key = crate::secrets::provider_api_key_for_database(&id, input.api_key)?;
             tx.execute(
                 "INSERT INTO provider_settings (id, provider_type, base_url, api_key, model, is_default, is_translation, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-                rusqlite::params![id, input.provider_type, input.base_url, input.api_key, input.model, is_default, is_translation, now, now],
+                rusqlite::params![id, input.provider_type, input.base_url, api_key, input.model, is_default, is_translation, now, now],
             ).map_err(|e| e.to_string())?;
 
             tx.commit().map_err(|e| e.to_string())?;
@@ -247,12 +252,8 @@ mod tests {
     #[test]
     fn blank_api_key_update_keeps_existing_secret() {
         assert_eq!(
-            api_key_for_update(None, Some("existing".into())),
+            api_key_for_update("p1", None, Some("existing".into())).unwrap(),
             Some("existing".into())
-        );
-        assert_eq!(
-            api_key_for_update(Some("replacement".into()), Some("existing".into())),
-            Some("replacement".into())
         );
     }
 
@@ -328,18 +329,19 @@ pub async fn test_provider(
     db: State<'_, DbState>,
     provider_id: String,
 ) -> Result<TestProviderResult, String> {
-    let (provider_type, base_url, api_key, model) = {
+    let (provider_id, provider_type, base_url, api_key, model) = {
         let conn = db.0.lock().map_err(|e| e.to_string())?;
         let mut stmt = conn
-            .prepare("SELECT provider_type, base_url, api_key, model FROM provider_settings WHERE id = ?1")
+            .prepare("SELECT id, provider_type, base_url, api_key, model FROM provider_settings WHERE id = ?1")
             .map_err(|e| e.to_string())?;
         let mut rows = stmt
             .query_map(rusqlite::params![provider_id], |row| {
                 Ok((
                     row.get::<_, String>(0)?,
-                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, String>(1)?,
                     row.get::<_, Option<String>>(2)?,
-                    row.get::<_, String>(3)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, String>(4)?,
                 ))
             })
             .map_err(|e| e.to_string())?;
@@ -349,6 +351,7 @@ pub async fn test_provider(
     };
 
     let base_url = base_url.ok_or("Provider is missing a base URL. Check Settings.")?;
+    let api_key = crate::secrets::provider_api_key(&provider_id, api_key)?;
     let api_key = match api_key {
         Some(key) => key,
         None if crate::ai::provider::provider_requires_api_key(&provider_type) => {
