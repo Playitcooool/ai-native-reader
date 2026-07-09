@@ -4,6 +4,7 @@ import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
 import { linkCitationMarkdown } from "../features/citations/citationParser";
+import { isAllowedExternalUrl, openExternalUrl } from "../features/links/externalLinks";
 
 interface AiMarkdownProps {
   children: string;
@@ -32,7 +33,18 @@ export default function AiMarkdown({ children, onPageLink }: AiMarkdownProps) {
                 </a>
               );
             }
-            return <a href={href} target="_blank" rel="noreferrer">{children}</a>;
+            if (!href || !isAllowedExternalUrl(href)) return <span>{children}</span>;
+            return (
+              <a
+                href={href}
+                onClick={(event) => {
+                  event.preventDefault();
+                  openExternalUrl(href).catch(() => {});
+                }}
+              >
+                {children}
+              </a>
+            );
           },
         }}
       >
