@@ -67,6 +67,7 @@ export default function SettingsPanel() {
   const [testing, setTesting] = useState(false);
   const [exportingBackup, setExportingBackup] = useState(false);
   const [restoringBackup, setRestoringBackup] = useState(false);
+  const [clearingTextCache, setClearingTextCache] = useState(false);
   const initialLoadDone = useRef(false);
 
   // Populate form from saved settings — only from blank state, never after save
@@ -173,6 +174,21 @@ export default function SettingsPanel() {
       setStatus({ ok: false, msg: `Restore failed: ${err}` });
     } finally {
       setRestoringBackup(false);
+    }
+  };
+
+  const handleClearTextCache = async () => {
+    if (clearingTextCache) return;
+    if (!window.confirm("Clear cached PDF text and OCR data? PDFs can rebuild it when opened.")) return;
+    setClearingTextCache(true);
+    setStatus(null);
+    try {
+      const result = await invoke<{ deletedRows: number }>("clear_pdf_page_text_cache");
+      setStatus({ ok: true, msg: `Cleared ${result.deletedRows} cached PDF page rows.` });
+    } catch (err) {
+      setStatus({ ok: false, msg: `Cleanup failed: ${err}` });
+    } finally {
+      setClearingTextCache(false);
     }
   };
 
@@ -392,6 +408,9 @@ export default function SettingsPanel() {
           </button>
           <button type="button" className="settings-danger-button" onClick={handleRestoreBackup} disabled={restoringBackup}>
             {restoringBackup ? "Restoring..." : "Restore Backup"}
+          </button>
+          <button type="button" className="settings-danger-button" onClick={handleClearTextCache} disabled={clearingTextCache}>
+            {clearingTextCache ? "Clearing..." : "Clear PDF Text Cache"}
           </button>
           {status && (
             <p className={status.ok ? "settings-status-ok" : "settings-status-error"}>

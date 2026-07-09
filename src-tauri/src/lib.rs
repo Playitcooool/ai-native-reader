@@ -152,6 +152,7 @@ pub fn run() {
             commands::pages::get_pages_text_coverage,
             commands::pages::count_indexed_pages,
             commands::pages::search_pages_text,
+            commands::pages::clear_pdf_page_text_cache,
             commands::pages::mark_page_text_failed,
             commands::pages::ocr_page,
             commands::toc::save_toc_nodes,

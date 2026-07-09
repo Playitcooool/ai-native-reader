@@ -66,6 +66,12 @@ pub struct PageSearchResult {
     pub context: String,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClearPageTextCacheResult {
+    pub deleted_rows: usize,
+}
+
 pub(crate) fn page_row_id(document_id: &str, page_number: i64) -> String {
     // Deterministic ID from document_id + page_number so upserts don't orphan FKs
     format!("p_{}_{}", document_id, page_number)
@@ -305,6 +311,27 @@ pub fn save_pages_text(
     Ok(())
 }
 
+fn clear_pdf_page_text_cache_for_conn(
+    conn: &rusqlite::Connection,
+) -> Result<ClearPageTextCacheResult, String> {
+    let deleted_rows = conn
+        .execute(
+            "DELETE FROM pages
+             WHERE document_id IN (
+               SELECT id FROM documents WHERE document_type = 'pdf'
+             )",
+            [],
+        )
+        .map_err(|e| e.to_string())?;
+    Ok(ClearPageTextCacheResult { deleted_rows })
+}
+
+#[tauri::command]
+pub fn clear_pdf_page_text_cache(db: State<DbState>) -> Result<ClearPageTextCacheResult, String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    clear_pdf_page_text_cache_for_conn(&conn)
+}
+
 #[tauri::command]
 pub fn mark_page_text_failed(
     db: State<DbState>,
@@ -464,5 +491,47 @@ mod tests {
         assert_eq!(id, "existing_id");
         assert_eq!(text, "new text");
         assert_eq!(char_count, 8);
+    }
+
+    #[test]
+    fn clears_only_pdf_page_text_cache() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "
+            CREATE TABLE documents (id TEXT PRIMARY KEY, document_type TEXT DEFAULT 'pdf');
+            CREATE TABLE pages (
+                id TEXT PRIMARY KEY,
+                document_id TEXT NOT NULL,
+                page_number INTEGER NOT NULL,
+                text TEXT,
+                text_status TEXT DEFAULT 'pending',
+                char_count INTEGER DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(document_id, page_number)
+            );
+            INSERT INTO documents (id, document_type) VALUES ('pdf1', 'pdf'), ('epub1', 'epub');
+            INSERT INTO pages (id, document_id, page_number, text, created_at, updated_at)
+              VALUES ('p1', 'pdf1', 1, 'pdf text', 'now', 'now'),
+                     ('p2', 'epub1', 1, 'epub text', 'now', 'now');
+            ",
+        )
+        .unwrap();
+
+        let result = clear_pdf_page_text_cache_for_conn(&conn).unwrap();
+        let remaining: i64 = conn
+            .query_row("SELECT COUNT(*) FROM pages", [], |row| row.get(0))
+            .unwrap();
+        let epub_text: String = conn
+            .query_row(
+                "SELECT text FROM pages WHERE document_id = 'epub1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+
+        assert_eq!(result.deleted_rows, 1);
+        assert_eq!(remaining, 1);
+        assert_eq!(epub_text, "epub text");
     }
 }
