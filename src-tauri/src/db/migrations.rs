@@ -32,7 +32,8 @@ fn run_migrations(conn: &Connection) -> Result<()> {
             has_native_toc INTEGER DEFAULT 0,
             document_type TEXT DEFAULT 'pdf',
             author TEXT,
-            access_bookmark BLOB
+            access_bookmark BLOB,
+            removed_at TEXT
         );
 
         CREATE TABLE IF NOT EXISTS pages (
@@ -216,6 +217,7 @@ fn run_migrations(conn: &Connection) -> Result<()> {
         [],
     );
     let _ = conn.execute("ALTER TABLE documents ADD COLUMN access_bookmark BLOB", []);
+    let _ = conn.execute("ALTER TABLE documents ADD COLUMN removed_at TEXT", []);
     let _ = conn.execute(
         "ALTER TABLE library_folder ADD COLUMN access_bookmark BLOB",
         [],

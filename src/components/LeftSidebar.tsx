@@ -238,13 +238,13 @@ export default function LeftSidebar({
   };
 
   const handleDelete = async (doc: Document) => {
-    if (!window.confirm(`Delete "${documentDisplayTitle(doc)}"? This cannot be undone.`)) { setCtxMenu(null); return; }
+    if (!window.confirm(`Remove "${documentDisplayTitle(doc)}" from the library? Your notes and AI history stay in the local database.`)) { setCtxMenu(null); return; }
     setCtxMenu(null);
     try {
       await useDocumentStore.getState().deleteDocument(doc.id);
-      addToast({ type: "info", message: `Deleted "${documentDisplayTitle(doc)}".` });
+      addToast({ type: "info", message: `Removed "${documentDisplayTitle(doc)}" from the library.` });
     } catch {
-      addToast({ type: "error", message: "Failed to delete document." });
+      addToast({ type: "error", message: "Failed to remove document." });
     }
   };
 
@@ -432,7 +432,7 @@ export default function LeftSidebar({
         >
           <CollectionAssignmentMenu doc={ctxMenu.doc} onDone={() => setCtxMenu(null)} />
           <button className="ctx-menu-item" role="menuitem" onClick={() => handleDelete(ctxMenu.doc)}>
-            Delete
+            Remove from Library
           </button>
         </div>
       )}

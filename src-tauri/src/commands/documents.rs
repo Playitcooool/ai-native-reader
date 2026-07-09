@@ -67,12 +67,16 @@ pub fn import_document(db: State<DbState>, file_path: String) -> Result<Document
 #[tauri::command]
 pub fn get_documents(db: State<DbState>) -> Result<Vec<Document>, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
+    get_documents_for_conn(&conn)
+}
+
+fn get_documents_for_conn(conn: &rusqlite::Connection) -> Result<Vec<Document>, String> {
     let mut stmt = conn
         .prepare(
             "SELECT id, title, original_filename, file_path, file_sha256, page_count,
                     created_at, updated_at, last_opened_at, last_page, last_zoom,
                     parse_status, has_native_toc, document_type, author
-             FROM documents
+             FROM documents WHERE removed_at IS NULL
              ORDER BY last_opened_at DESC",
         )
         .map_err(|e| e.to_string())?;
@@ -285,9 +289,14 @@ pub fn refresh_document_metadata(
 #[tauri::command]
 pub fn delete_document(db: State<DbState>, document_id: String) -> Result<(), String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
+    hide_document_for_conn(&conn, &document_id)
+}
+
+fn hide_document_for_conn(conn: &rusqlite::Connection, document_id: &str) -> Result<(), String> {
+    let now = Utc::now().to_rfc3339();
     conn.execute(
-        "DELETE FROM documents WHERE id = ?1",
-        rusqlite::params![document_id],
+        "UPDATE documents SET removed_at = ?1, updated_at = ?1 WHERE id = ?2",
+        rusqlite::params![now, document_id],
     )
     .map_err(|e| e.to_string())?;
     Ok(())
@@ -397,4 +406,71 @@ pub fn remove_document_from_collection(
     )
     .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn conn_with_documents() -> rusqlite::Connection {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "
+            CREATE TABLE documents (
+                id TEXT PRIMARY KEY,
+                title TEXT,
+                original_filename TEXT NOT NULL,
+                file_path TEXT NOT NULL,
+                file_sha256 TEXT,
+                page_count INTEGER,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                last_opened_at TEXT,
+                last_page INTEGER DEFAULT 1,
+                last_zoom REAL DEFAULT 1.0,
+                parse_status TEXT DEFAULT 'pending',
+                has_native_toc INTEGER DEFAULT 0,
+                document_type TEXT DEFAULT 'pdf',
+                author TEXT,
+                removed_at TEXT
+            );
+            CREATE TABLE annotations (
+                id TEXT PRIMARY KEY,
+                document_id TEXT NOT NULL,
+                page_number INTEGER NOT NULL,
+                type TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY(document_id) REFERENCES documents(id) ON DELETE CASCADE
+            );
+            ",
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO documents (id, title, original_filename, file_path, created_at, updated_at, last_opened_at, document_type)
+             VALUES ('doc1', 'Book', 'book.pdf', '/tmp/book.pdf', 'now', 'now', 'now', 'pdf')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO annotations (id, document_id, page_number, type, created_at, updated_at)
+             VALUES ('note1', 'doc1', 1, 'note', 'now', 'now')",
+            [],
+        )
+        .unwrap();
+        conn
+    }
+
+    #[test]
+    fn hiding_document_removes_it_from_library_without_deleting_notes() {
+        let conn = conn_with_documents();
+
+        hide_document_for_conn(&conn, "doc1").unwrap();
+
+        assert!(get_documents_for_conn(&conn).unwrap().is_empty());
+        let notes: i64 = conn
+            .query_row("SELECT COUNT(*) FROM annotations", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(notes, 1);
+    }
 }
