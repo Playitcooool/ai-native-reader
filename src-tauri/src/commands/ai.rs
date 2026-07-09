@@ -1,6 +1,6 @@
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 use std::sync::Mutex;
 use tauri::Emitter;
 use tauri::State;
@@ -208,6 +208,104 @@ fn get_session_messages_for_conn(
     Ok(messages)
 }
 
+fn extract_citation_pages(text: &str, max_page: Option<i64>) -> Vec<i64> {
+    let bytes = text.as_bytes();
+    let mut pages = BTreeSet::new();
+    let mut i = 0;
+    while i + 2 < bytes.len() {
+        if bytes[i] != b'[' || !bytes[i + 1].eq_ignore_ascii_case(&b'p') {
+            i += 1;
+            continue;
+        }
+        let mut j = i + 2;
+        if j < bytes.len() && bytes[j] == b'.' {
+            j += 1;
+        }
+        while j < bytes.len() && bytes[j].is_ascii_whitespace() {
+            j += 1;
+        }
+        let start = j;
+        while j < bytes.len() && bytes[j].is_ascii_digit() {
+            j += 1;
+        }
+        if start < j && j < bytes.len() && bytes[j] == b']' {
+            if let Ok(page) = text[start..j].parse::<i64>() {
+                if page >= 1 && max_page.is_none_or(|max| page <= max) {
+                    pages.insert(page);
+                }
+            }
+            i = j + 1;
+        } else {
+            i += 1;
+        }
+    }
+    pages.into_iter().collect()
+}
+
+fn quote_for_citation(
+    conn: &rusqlite::Connection,
+    document_id: &str,
+    page_number: i64,
+) -> Option<String> {
+    let text: String = conn
+        .query_row(
+            "SELECT text FROM pages
+             WHERE document_id = ?1 AND page_number = ?2 AND text_status = 'ready' AND char_count > 0",
+            rusqlite::params![document_id, page_number],
+            |row| row.get(0),
+        )
+        .ok()?;
+    Some(text.chars().take(240).collect())
+}
+
+fn save_citations_for_message(
+    conn: &rusqlite::Connection,
+    message_id: &str,
+    document_id: &str,
+    content: &str,
+    now: &str,
+) -> Result<(), String> {
+    let page_count: Option<i64> = conn
+        .query_row(
+            "SELECT page_count FROM documents WHERE id = ?1",
+            rusqlite::params![document_id],
+            |row| row.get(0),
+        )
+        .ok()
+        .flatten();
+
+    for page_number in extract_citation_pages(content, page_count) {
+        let Some(quote) = quote_for_citation(conn, document_id, page_number) else {
+            continue;
+        };
+        let toc_node_id: Option<String> = conn
+            .query_row(
+                "SELECT id FROM toc_nodes
+                 WHERE document_id = ?1 AND start_page <= ?2 AND (end_page IS NULL OR end_page >= ?2)
+                 ORDER BY level DESC, start_page DESC
+                 LIMIT 1",
+                rusqlite::params![document_id, page_number],
+                |row| row.get(0),
+            )
+            .ok();
+        conn.execute(
+            "INSERT INTO ai_answer_citations (id, message_id, document_id, page_number, toc_node_id, quote, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            rusqlite::params![
+                Uuid::new_v4().to_string(),
+                message_id,
+                document_id,
+                page_number,
+                toc_node_id,
+                quote,
+                now
+            ],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub fn get_session_messages(
     db: State<DbState>,
@@ -244,6 +342,17 @@ pub fn save_ai_message(
             input.citations_json, input.context_snapshot_json, input.page_number, now],
     )
     .map_err(|e| e.to_string())?;
+
+    if input.role == "assistant" {
+        let document_id: String = conn
+            .query_row(
+                "SELECT document_id FROM ai_sessions WHERE id = ?1",
+                rusqlite::params![input.session_id],
+                |row| row.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        save_citations_for_message(&conn, &id, &document_id, &input.content, &now)?;
+    }
 
     // Update session timestamp
     conn.execute(
@@ -998,6 +1107,7 @@ pub async fn run_ai_workflow(
             rusqlite::params![assistant_msg_id, session_id, answer, input.page_number, context_json, now],
         )
         .map_err(|e| e.to_string())?;
+        save_citations_for_message(&conn, &assistant_msg_id, &input.document_id, &answer, &now)?;
 
         // Update session timestamp
         conn.execute(
@@ -1056,10 +1166,82 @@ mod tests {
                 is_compacted INTEGER DEFAULT 0,
                 created_at TEXT NOT NULL
             );
+            CREATE TABLE documents (
+                id TEXT PRIMARY KEY,
+                page_count INTEGER
+            );
+            CREATE TABLE pages (
+                id TEXT PRIMARY KEY,
+                document_id TEXT NOT NULL,
+                page_number INTEGER NOT NULL,
+                text TEXT,
+                text_status TEXT DEFAULT 'pending',
+                char_count INTEGER DEFAULT 0
+            );
+            CREATE TABLE toc_nodes (
+                id TEXT PRIMARY KEY,
+                document_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                level INTEGER NOT NULL,
+                start_page INTEGER NOT NULL,
+                end_page INTEGER
+            );
+            CREATE TABLE ai_answer_citations (
+                id TEXT PRIMARY KEY,
+                message_id TEXT NOT NULL,
+                document_id TEXT NOT NULL,
+                page_number INTEGER NOT NULL,
+                toc_node_id TEXT,
+                quote TEXT,
+                created_at TEXT NOT NULL
+            );
             ",
         )
         .unwrap();
         conn
+    }
+
+    #[test]
+    fn saves_only_verified_citations_for_message() {
+        let conn = conn_with_ai_tables();
+        conn.execute(
+            "INSERT INTO documents (id, page_count) VALUES ('doc', 3)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO pages (id, document_id, page_number, text, text_status, char_count)
+             VALUES ('p1', 'doc', 1, 'source text page one', 'ready', 20),
+                    ('p2', 'doc', 2, '', 'failed', 0)",
+            [],
+        )
+        .unwrap();
+
+        save_citations_for_message(
+            &conn,
+            "m1",
+            "doc",
+            "Use [p.1], [p.2], [p.9], and [p 1].",
+            "now",
+        )
+        .unwrap();
+
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM ai_answer_citations", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        let (page, quote): (i64, String) = conn
+            .query_row(
+                "SELECT page_number, quote FROM ai_answer_citations",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+
+        assert_eq!(count, 1);
+        assert_eq!(page, 1);
+        assert_eq!(quote, "source text page one");
     }
 
     fn insert_session(conn: &rusqlite::Connection, id: &str, doc: &str, updated: &str) {
