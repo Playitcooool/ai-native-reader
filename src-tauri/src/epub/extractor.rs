@@ -1,6 +1,9 @@
 use epub::doc::EpubDoc;
 use std::path::Path;
 
+const MAX_EPUB_SPINE_ITEMS: usize = 5_000;
+const MAX_EPUB_TEXT_CHARS: usize = 10_000_000;
+
 /// Result for one spine item (chapter)
 pub struct ChapterContent {
     pub index: usize,
@@ -36,6 +39,9 @@ pub fn extract_chapters(
     let meta_author = get_val("creator");
 
     let total = doc.spine.len();
+    if total > MAX_EPUB_SPINE_ITEMS {
+        return Err("EPUB has too many spine items to extract safely.".into());
+    }
 
     // Collect spine item IDs to avoid borrow conflicts
     let spine_ids: Vec<String> = doc.spine.iter().map(|item| item.idref.clone()).collect();
@@ -52,6 +58,7 @@ pub fn extract_chapters(
     flatten_nav(&doc.toc, 0, &mut toc);
 
     let mut chapters = Vec::new();
+    let mut total_chars = 0usize;
 
     for (i, idref) in spine_ids.iter().enumerate() {
         let html = doc
@@ -65,6 +72,10 @@ pub fn extract_chapters(
             .unwrap_or_else(|| format!("Chapter {}", i + 1));
 
         let text = strip_html(&html);
+        total_chars = total_chars.saturating_add(text.chars().count());
+        if total_chars > MAX_EPUB_TEXT_CHARS {
+            return Err("EPUB text is too large to extract safely.".into());
+        }
         chapters.push(ChapterContent {
             index: i,
             title,
@@ -130,4 +141,23 @@ fn strip_html(html: &str) -> String {
 
     let text: Vec<&str> = text.split_whitespace().collect();
     text.join(" ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn strips_basic_html_text() {
+        assert_eq!(
+            strip_html("<h1>A</h1><p>B&nbsp;&amp;&nbsp;C</p>"),
+            "A B & C"
+        );
+    }
+
+    #[test]
+    fn epub_limits_are_large_but_finite() {
+        assert!(MAX_EPUB_SPINE_ITEMS >= 1_000);
+        assert!(MAX_EPUB_TEXT_CHARS >= 1_000_000);
+    }
 }
