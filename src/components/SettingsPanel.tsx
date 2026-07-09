@@ -72,7 +72,7 @@ export default function SettingsPanel() {
       initialLoadDone.current = true;
       const s = settings[0];
       setBaseUrl(s.base_url ?? "");
-      setApiKey(s.api_key ?? "");
+      setApiKey("");
       setModel(s.model);
       setProviderType(s.provider_type);
       setEditingId(s.id);
@@ -138,7 +138,7 @@ export default function SettingsPanel() {
     const s = settings.find((p) => p.id === id);
     if (!s) return;
     setBaseUrl(s.base_url ?? "");
-    setApiKey(s.api_key ?? "");
+    setApiKey("");
     setModel(s.model);
     setProviderType(s.provider_type);
     setEditingId(s.id);
@@ -277,7 +277,13 @@ export default function SettingsPanel() {
           <input id="base-url" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder={defaults.baseUrl} />
 
           <label htmlFor="api-key">API Key</label>
-          <input id="api-key" type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={defaults.apiKeyPlaceholder} />
+          <input
+            id="api-key"
+            type="password"
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+            placeholder={editingId ? "Saved; leave blank to keep" : defaults.apiKeyPlaceholder}
+          />
 
           <label htmlFor="model">Model</label>
           <input id="model" value={model} onChange={(e) => setModel(e.target.value)} placeholder={defaults.modelPlaceholder} />
