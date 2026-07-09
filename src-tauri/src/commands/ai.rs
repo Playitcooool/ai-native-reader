@@ -42,6 +42,14 @@ pub struct AiSessionListItem {
     pub last_message_preview: Option<String>,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClearAiHistoryResult {
+    pub deleted_sessions: i64,
+    pub deleted_messages: i64,
+    pub deleted_memories: i64,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct GetOrCreateSessionInput {
     pub document_id: String,
@@ -171,6 +179,43 @@ pub fn list_ai_sessions(
 ) -> Result<Vec<AiSessionListItem>, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     list_ai_sessions_for_conn(&conn, &document_id, limit.unwrap_or(25))
+}
+
+fn clear_ai_history_for_conn(
+    conn: &mut rusqlite::Connection,
+) -> Result<ClearAiHistoryResult, String> {
+    let deleted_sessions: i64 = conn
+        .query_row("SELECT COUNT(*) FROM ai_sessions", [], |row| row.get(0))
+        .map_err(|e| e.to_string())?;
+    let deleted_messages: i64 = conn
+        .query_row("SELECT COUNT(*) FROM ai_messages", [], |row| row.get(0))
+        .map_err(|e| e.to_string())?;
+    let deleted_memories: i64 = conn
+        .query_row("SELECT COUNT(*) FROM learning_memories", [], |row| {
+            row.get(0)
+        })
+        .unwrap_or(0);
+
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    tx.execute("DELETE FROM ai_answer_citations", []).ok();
+    tx.execute("DELETE FROM ai_messages", [])
+        .map_err(|e| e.to_string())?;
+    tx.execute("DELETE FROM ai_sessions", [])
+        .map_err(|e| e.to_string())?;
+    tx.execute("DELETE FROM learning_memories", []).ok();
+    tx.commit().map_err(|e| e.to_string())?;
+
+    Ok(ClearAiHistoryResult {
+        deleted_sessions,
+        deleted_messages,
+        deleted_memories,
+    })
+}
+
+#[tauri::command]
+pub fn clear_ai_history(db: State<DbState>) -> Result<ClearAiHistoryResult, String> {
+    let mut conn = db.0.lock().map_err(|e| e.to_string())?;
+    clear_ai_history_for_conn(&mut conn)
 }
 
 fn get_session_messages_for_conn(
@@ -1195,10 +1240,67 @@ mod tests {
                 quote TEXT,
                 created_at TEXT NOT NULL
             );
+            CREATE TABLE learning_memories (
+                id TEXT PRIMARY KEY,
+                document_id TEXT NOT NULL,
+                concept TEXT NOT NULL
+            );
             ",
         )
         .unwrap();
         conn
+    }
+
+    #[test]
+    fn clears_ai_history_and_cascaded_rows() {
+        let mut conn = conn_with_ai_tables();
+        conn.execute("PRAGMA foreign_keys=ON", []).unwrap();
+        conn.execute(
+            "INSERT INTO documents (id, page_count) VALUES ('doc', 1)",
+            [],
+        )
+        .unwrap();
+        insert_session(&conn, "s1", "doc", "2026-01-02T00:00:00Z");
+        conn.execute(
+            "INSERT INTO ai_messages (id, session_id, role, content, created_at)
+             VALUES ('m1', 's1', 'assistant', 'answer', 'now')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO ai_answer_citations (id, message_id, document_id, page_number, created_at)
+             VALUES ('c1', 'm1', 'doc', 1, 'now')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO learning_memories (id, document_id, concept) VALUES ('lm1', 'doc', 'x')",
+            [],
+        )
+        .unwrap();
+
+        let result = clear_ai_history_for_conn(&mut conn).unwrap();
+        let sessions: i64 = conn
+            .query_row("SELECT COUNT(*) FROM ai_sessions", [], |row| row.get(0))
+            .unwrap();
+        let messages: i64 = conn
+            .query_row("SELECT COUNT(*) FROM ai_messages", [], |row| row.get(0))
+            .unwrap();
+        let citations: i64 = conn
+            .query_row("SELECT COUNT(*) FROM ai_answer_citations", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        let memories: i64 = conn
+            .query_row("SELECT COUNT(*) FROM learning_memories", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+
+        assert_eq!(result.deleted_sessions, 1);
+        assert_eq!(result.deleted_messages, 1);
+        assert_eq!(result.deleted_memories, 1);
+        assert_eq!(sessions + messages + citations + memories, 0);
     }
 
     #[test]

@@ -174,6 +174,7 @@ pub fn run() {
             commands::ai::list_ai_sessions,
             commands::ai::get_session_messages,
             commands::ai::save_ai_message,
+            commands::ai::clear_ai_history,
             commands::ai::compact_session,
             commands::ai::get_reading_state,
             commands::ai::update_reading_state,

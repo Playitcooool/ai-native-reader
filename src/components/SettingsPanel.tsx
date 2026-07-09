@@ -68,6 +68,7 @@ export default function SettingsPanel() {
   const [exportingBackup, setExportingBackup] = useState(false);
   const [restoringBackup, setRestoringBackup] = useState(false);
   const [clearingTextCache, setClearingTextCache] = useState(false);
+  const [clearingAiHistory, setClearingAiHistory] = useState(false);
   const initialLoadDone = useRef(false);
 
   // Populate form from saved settings — only from blank state, never after save
@@ -189,6 +190,21 @@ export default function SettingsPanel() {
       setStatus({ ok: false, msg: `Cleanup failed: ${err}` });
     } finally {
       setClearingTextCache(false);
+    }
+  };
+
+  const handleClearAiHistory = async () => {
+    if (clearingAiHistory) return;
+    if (!window.confirm("Clear all AI conversations, citations, and learning memories?")) return;
+    setClearingAiHistory(true);
+    setStatus(null);
+    try {
+      const result = await invoke<{ deletedSessions: number; deletedMessages: number; deletedMemories: number }>("clear_ai_history");
+      setStatus({ ok: true, msg: `Cleared ${result.deletedSessions} AI sessions, ${result.deletedMessages} messages, and ${result.deletedMemories} memories.` });
+    } catch (err) {
+      setStatus({ ok: false, msg: `Cleanup failed: ${err}` });
+    } finally {
+      setClearingAiHistory(false);
     }
   };
 
@@ -411,6 +427,9 @@ export default function SettingsPanel() {
           </button>
           <button type="button" className="settings-danger-button" onClick={handleClearTextCache} disabled={clearingTextCache}>
             {clearingTextCache ? "Clearing..." : "Clear PDF Text Cache"}
+          </button>
+          <button type="button" className="settings-danger-button" onClick={handleClearAiHistory} disabled={clearingAiHistory}>
+            {clearingAiHistory ? "Clearing..." : "Clear AI History"}
           </button>
           {status && (
             <p className={status.ok ? "settings-status-ok" : "settings-status-error"}>
