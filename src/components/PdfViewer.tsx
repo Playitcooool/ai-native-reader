@@ -553,7 +553,7 @@ export default function PdfViewer({ documentId, onBackHome, onOpenLibrary, onOpe
         </span>
         <span className="toolbar-spacer" />
         <button className="icon-button" onClick={() => handleSetZoom(zoom - 0.25)} disabled={zoom <= 0.25} aria-label="Zoom out"><Icon name="minus" /></button>
-        <button className="zoom-reset" onClick={() => handleSetZoom(1.0)}>{Math.round(zoom * 100)}%</button>
+        <button className="zoom-reset" onClick={() => handleSetZoom(1.0)} aria-label="Reset zoom">{Math.round(zoom * 100)}%</button>
         <button className="icon-button" onClick={() => handleSetZoom(zoom + 0.25)} disabled={zoom >= 4.0} aria-label="Zoom in"><Icon name="plus" /></button>
       </div>
 

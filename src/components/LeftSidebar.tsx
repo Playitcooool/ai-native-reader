@@ -311,7 +311,7 @@ export default function LeftSidebar({
                           setLibraryFolder(null);
                           await loadDocuments();
                         } catch {}
-                      }} title="Disconnect folder">✕</button>
+                      }} title="Disconnect folder" aria-label="Disconnect library folder">✕</button>
                     </div>
                   )}
                   <CollectionFilterChips documents={documents} />

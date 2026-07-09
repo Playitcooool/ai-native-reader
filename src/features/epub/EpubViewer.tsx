@@ -422,7 +422,7 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
         </span>
         <span className="toolbar-spacer" />
         <button className="icon-button" onClick={() => setFontSize((s) => Math.max(50, s - 10))} disabled={fontSize <= 50} aria-label="Zoom out"><Icon name="minus" /></button>
-        <button className="zoom-reset" onClick={() => setFontSize(100)}>{fontSize}%</button>
+        <button className="zoom-reset" onClick={() => setFontSize(100)} aria-label="Reset text size">{fontSize}%</button>
         <button className="icon-button" onClick={() => setFontSize((s) => Math.min(200, s + 10))} disabled={fontSize >= 200} aria-label="Zoom in"><Icon name="plus" /></button>
       </div>
 
