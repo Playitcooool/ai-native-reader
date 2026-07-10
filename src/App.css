@@ -1682,6 +1682,24 @@
 
 }
 
+@media (max-width: 1050px) {
+  .reader-toolbar .toolbar-text-button {
+    width: 30px;
+    padding-inline: 0;
+    gap: 0;
+    font-size: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 @keyframes skeleton-pulse {
   0% { opacity: 0.3; }
   50% { opacity: 0.6; }

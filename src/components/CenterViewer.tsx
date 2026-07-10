@@ -80,6 +80,7 @@ export default function CenterViewer({
   const { addToast } = useToast();
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; doc: Document } | null>(null);
   const ctxRef = useRef<HTMLDivElement>(null);
+  const ctxOriginRef = useRef<HTMLElement | null>(null);
   const visibleDocuments = useMemo(
     () => filterDocumentsByCollection(documents, selectedCollectionId, documentCollections),
     [documents, selectedCollectionId, documentCollections],
@@ -95,11 +96,14 @@ export default function CenterViewer({
       if (e instanceof KeyboardEvent && e.key !== "Escape") return;
       if (e instanceof MouseEvent && ctxRef.current?.contains(e.target as Node)) return;
       setCtxMenu(null);
+      if (e instanceof KeyboardEvent) requestAnimationFrame(() => ctxOriginRef.current?.focus());
     };
     const id = setTimeout(() => document.addEventListener("click", close), 0);
+    const focusId = requestAnimationFrame(() => ctxRef.current?.querySelector<HTMLElement>("button")?.focus());
     document.addEventListener("keydown", close);
     return () => {
       clearTimeout(id);
+      cancelAnimationFrame(focusId);
       document.removeEventListener("click", close);
       document.removeEventListener("keydown", close);
     };
@@ -107,6 +111,7 @@ export default function CenterViewer({
 
   const handleContextMenu = (e: React.MouseEvent, doc: Document) => {
     e.preventDefault();
+    ctxOriginRef.current = e.currentTarget as HTMLElement;
     const menuW = 220, menuH = 260;
     const x = Math.min(e.clientX, window.innerWidth - menuW);
     const y = Math.min(e.clientY, window.innerHeight - menuH);
@@ -159,8 +164,8 @@ export default function CenterViewer({
           <button className="primary-action" onClick={() => handleOpenDocument().catch(() => addToast({ type: "error", message: "Failed to open document." }))}>
             Open Document
           </button>
-          <button onClick={() => handleOpenFolder().catch(() => addToast({ type: "error", message: "Failed to open folder." }))}>
-            Folder
+          <button onClick={() => handleOpenFolder().catch(() => addToast({ type: "error", message: "Failed to import folder." }))}>
+            Import Folder
           </button>
         </div>
       </div>
@@ -179,7 +184,7 @@ export default function CenterViewer({
         {documents.length === 0 ? (
           <div className="empty-state">
             <h2>No books yet</h2>
-            <p>Use Open PDF or Import Folder to add your first document.</p>
+            <p>Use Open Document or Import Folder to add your first document.</p>
           </div>
         ) : visibleDocuments.length === 0 ? (
           <div className="empty-state">
@@ -188,7 +193,20 @@ export default function CenterViewer({
           </div>
         ) : (
           visibleDocuments.map((doc) => (
-            <button key={doc.id} className="book-card" onClick={() => setCurrentDocument(doc)} onContextMenu={(e) => handleContextMenu(e, doc)}>
+            <button
+              key={doc.id}
+              className="book-card"
+              onClick={() => setCurrentDocument(doc)}
+              onContextMenu={(e) => handleContextMenu(e, doc)}
+              onKeyDown={(e) => {
+                if (e.key !== "ContextMenu" && !(e.shiftKey && e.key === "F10")) return;
+                e.preventDefault();
+                ctxOriginRef.current = e.currentTarget;
+                const rect = e.currentTarget.getBoundingClientRect();
+                setCtxMenu({ x: rect.left + 16, y: rect.top + 16, doc });
+              }}
+              aria-haspopup="menu"
+            >
               <BookCover doc={doc} />
               <span className="book-title">{documentDisplayTitle(doc)}</span>
               {doc.author && <span className="book-meta" style={{ color: "var(--text-muted)" }}>{doc.author}</span>}
@@ -208,7 +226,10 @@ export default function CenterViewer({
           style={{ left: ctxMenu.x, top: ctxMenu.y }}
           role="menu"
         >
-          <CollectionAssignmentMenu doc={ctxMenu.doc} onDone={() => setCtxMenu(null)} />
+          <CollectionAssignmentMenu doc={ctxMenu.doc} onDone={() => {
+            setCtxMenu(null);
+            requestAnimationFrame(() => ctxOriginRef.current?.focus());
+          }} />
         </div>
       )}
     </div>

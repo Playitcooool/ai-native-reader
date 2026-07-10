@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { pagesNeededForWorkflow } from "../features/ai/workflowPages";
+import { recordDiagnostic } from "../features/diagnostics";
 import { ensurePagesTextReady } from "../features/pdf/pdfTextExtraction";
 
 export interface AiMessage {
@@ -165,6 +166,8 @@ export const useAiStore = create<AiState>((set, get) => ({
     set({ isGenerating: true, aiPhase: "building_context", streamingContent: "", pendingUserContent: userContent, lastWorkflowInput: input as Record<string, any> });
 
     let unlisten: UnlistenFn[] = [];
+    const workflowStarted = performance.now();
+    let recordedFirstToken = false;
     cancelFlag = false;
 
     try {
@@ -175,6 +178,10 @@ export const useAiStore = create<AiState>((set, get) => ({
       unlisten.push(phaseUnlisten);
       // Listen for streaming tokens from backend (debounced)
       const tokenUnlisten = await listen<{ token: string }>("ai-stream-chunk", (event) => {
+        if (!recordedFirstToken) {
+          recordedFirstToken = true;
+          recordDiagnostic("ai_first_token_ms", performance.now() - workflowStarted);
+        }
         streamBuffer += event.payload.token;
         if (!streamTimer) {
           streamTimer = setTimeout(() => flushStreamBuffer(set), 100);

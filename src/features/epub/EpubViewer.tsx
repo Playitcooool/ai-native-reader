@@ -252,7 +252,7 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
           invoke("extract_epub_content", { documentId, filePath: currentDocument?.file_path ?? "" }).catch(() => {});
         }
 
-        const raw = await invoke<number[] | Uint8Array>("read_document_bytes", { documentId });
+        const raw = await invoke<ArrayBuffer>("read_document_bytes", { documentId });
         if (dead) return;
         const bytes = new Uint8Array(raw);
         const arrayBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
@@ -406,7 +406,7 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
   return (
     <div className="pdf-viewer">
       <div className="reader-toolbar">
-        <button className="toolbar-text-button" onClick={onBackHome} aria-label="Back to home"><Icon name="home" />Back to home</button>
+        <button className="toolbar-text-button toolbar-home" onClick={onBackHome} aria-label="Back to library"><Icon name="home" />Library</button>
         <span className="toolbar-divider" />
         <button className="icon-button" onClick={goPrevious} disabled={atStart || loading} aria-label="Previous page"><Icon name="prev" /></button>
         <span className="page-control"><span>{loading ? "Loading" : `${progress}% - ${currentSpineIndex + 1}/${spineCount}`}</span></span>
@@ -417,7 +417,7 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
         <InkToolbarControls value={inkToolState} onChange={setInkToolState} />
         <span className="toolbar-center">
           <button className="toolbar-text-button" onClick={onOpenContents} aria-label="Open contents"><Icon name="contents" />Contents</button>
-          <button className="toolbar-text-button" onClick={onOpenLibrary} aria-label="Open library"><Icon name="books" />Library</button>
+          <button className="toolbar-text-button" onClick={onOpenLibrary} aria-label="Open books"><Icon name="books" />Books</button>
           <button className="toolbar-text-button" onClick={() => onOpenAi?.()} aria-label="Open AI assistant"><Icon name="ask" />Ask</button>
         </span>
         <span className="toolbar-spacer" />

@@ -25,7 +25,7 @@ fn page_text_cache() -> &'static Mutex<HashMap<String, String>> {
     CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-/// Seed the page text cache with a value (called from save_page_text commands).
+/// Seed the page text cache with a value (called from page text commands).
 pub fn cache_page_text(document_id: &str, page_number: i64, text: &str) {
     let key = format!("{}:{}", document_id, page_number);
     if let Ok(mut cache) = page_text_cache().lock() {

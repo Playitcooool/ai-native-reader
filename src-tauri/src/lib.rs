@@ -70,10 +70,10 @@ pub fn run() {
             commands::library::init_watcher_if_configured(app.handle());
 
             // Build native menus
-            let open = MenuItemBuilder::with_id("open_pdf", "Open PDF…")
+            let open = MenuItemBuilder::with_id("open_pdf", "Open Document…")
                 .accelerator("CmdOrCtrl+O")
                 .build(app)?;
-            let open_folder = MenuItemBuilder::with_id("open_folder", "Open Folder…")
+            let open_folder = MenuItemBuilder::with_id("open_folder", "Import Folder…")
                 .accelerator("CmdOrCtrl+Shift+O")
                 .build(app)?;
             let settings = MenuItemBuilder::with_id("settings", "Settings…")
@@ -145,9 +145,7 @@ pub fn run() {
             commands::documents::get_collection_memberships,
             commands::documents::add_document_to_collection,
             commands::documents::remove_document_from_collection,
-            commands::pages::save_page_text,
             commands::pages::save_pages_text,
-            commands::pages::get_page_text,
             commands::pages::get_pages_text,
             commands::pages::get_pages_text_coverage,
             commands::pages::count_indexed_pages,
@@ -157,7 +155,6 @@ pub fn run() {
             commands::pages::ocr_page,
             commands::toc::save_toc_nodes,
             commands::toc::get_toc_tree,
-            commands::toc::get_toc_node_for_page,
             commands::notes::create_annotation,
             commands::notes::get_annotations,
             commands::notes::get_annotations_for_page,
@@ -170,14 +167,11 @@ pub fn run() {
             commands::settings::test_provider,
             commands::settings::export_database_backup,
             commands::settings::restore_database_backup,
-            commands::ai::get_or_create_ai_session,
             commands::ai::list_ai_sessions,
             commands::ai::get_session_messages,
-            commands::ai::save_ai_message,
             commands::ai::clear_ai_history,
             commands::ai::compact_session,
             commands::ai::get_reading_state,
-            commands::ai::update_reading_state,
             commands::ai::get_citations_for_message,
             commands::ai::run_ai_workflow,
             commands::ai::cancel_ai_workflow,

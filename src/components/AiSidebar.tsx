@@ -8,6 +8,7 @@ import { describeAiScope, draftFromSelection, formatAiError, shouldFollowScroll 
 import { pagesNeededForWorkflow } from "../features/ai/workflowPages";
 import { useToast } from "./Toast";
 import { Icon } from "./Icons";
+import { useSettingsStore } from "../stores/settingsStore";
 const AiMarkdown = lazy(() => import("./AiMarkdown"));
 
 interface AiSidebarProps {
@@ -35,6 +36,8 @@ export default function AiSidebar({ draftInput, onDraftConsumed }: AiSidebarProp
     lastWorkflowInput,
   } = useAiStore();
   const pushUndo = useUndoStore((s) => s.pushUndo);
+  const providerCount = useSettingsStore((s) => s.settings.length);
+  const openSettings = useSettingsStore((s) => s.openSettings);
   const [input, setInput] = useState("");
   const [rangeStart, setRangeStart] = useState("");
   const [rangeEnd, setRangeEnd] = useState("");
@@ -301,6 +304,18 @@ export default function AiSidebar({ draftInput, onDraftConsumed }: AiSidebarProp
         <div className="ai-header">AI Assistant</div>
         <div className="ai-content">
           <p>Open a PDF to start reading with AI assistance.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (providerCount === 0) {
+    return (
+      <div className="sidebar-inner">
+        <div className="ai-header">AI Assistant</div>
+        <div className="ai-content">
+          <p>Connect an AI provider before asking questions about this document.</p>
+          <button className="ai-primary-button" onClick={openSettings}>Configure AI</button>
         </div>
       </div>
     );

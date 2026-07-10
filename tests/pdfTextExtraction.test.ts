@@ -181,4 +181,25 @@ describe("PageExtractionQueue", () => {
     expect(saved.map((page) => page.pageNumber)).toEqual([3, 2, 4, 1, 5]);
     queue.destroy();
   });
+
+  it("counts text, scanned, and failed pages as processed", async () => {
+    const pdf = {
+      getPage: vi.fn(async (pageNumber: number) => {
+        if (pageNumber === 3) throw new Error("broken page");
+        return {
+          getTextContent: async () => ({
+            items: pageNumber === 1 ? [{ str: "one", transform: [1, 0, 0, 1, 0, 0] }] : [],
+          }),
+          cleanup: vi.fn(),
+        };
+      }),
+    };
+    const progress = vi.fn();
+    const queue = new PageExtractionQueue(pdf, "doc", vi.fn(async () => {}), vi.fn(async () => {}));
+    queue.onProgress = progress;
+
+    queue.enqueueAll(3);
+    await vi.waitFor(() => expect(progress).toHaveBeenLastCalledWith({ processed: 3, indexed: 1, total: 3 }));
+    queue.destroy();
+  });
 });

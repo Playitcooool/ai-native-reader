@@ -24,6 +24,7 @@ import ShortcutsModal from "./ShortcutsModal";
 import { Icon } from "./Icons";
 import { draftFromSelection } from "../features/ai/aiPanelHelpers";
 import type { Annotation } from "../stores/notesStore";
+import { recordDiagnostic } from "../features/diagnostics";
 
 const EMPTY_ANNOTATIONS: Annotation[] = [];
 
@@ -82,8 +83,7 @@ export default function PdfViewer({ documentId, onBackHome, onOpenLibrary, onOpe
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<Array<{ pageNum: number; context: string }>>([]);
   const [currentResultIdx, setCurrentResultIdx] = useState(0);
-  const [extractionDone, setExtractionDone] = useState(0);
-  const extractionTotal = useRef(0);
+  const [extractionProgress, setExtractionProgress] = useState({ processed: 0, indexed: 0, total: 0 });
   const [isSearching, setIsSearching] = useState(false);
   const [searchPhase, setSearchPhase] = useState("");
   const [loadProgress, setLoadProgress] = useState(0);
@@ -92,6 +92,9 @@ export default function PdfViewer({ documentId, onBackHome, onOpenLibrary, onOpe
   const searchCancelledRef = useRef(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const indexedCountTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchNeedsFinalRefreshRef = useRef(false);
+  const indexingStartedRef = useRef<number | null>(null);
+  const [loadAttempt, setLoadAttempt] = useState(0);
 
   const refreshIndexedPageCount = useCallback((delay = 500) => {
     if (indexedCountTimerRef.current) return;
@@ -193,17 +196,22 @@ export default function PdfViewer({ documentId, onBackHome, onOpenLibrary, onOpe
     let destroyed = false;
     const loadPdf = async () => {
       try {
+        const started = performance.now();
+        let documentBytes = 0;
+        setError(null);
         setLoadProgress(0);
         const onProgress = (loaded: number, total: number) => {
           if (total > 0) setLoadProgress(Math.round((loaded / total) * 100));
         };
         const loadFromBytes = async () => {
-          const data = await invoke<number[] | Uint8Array>("read_document_bytes", { documentId });
+          const data = await invoke<ArrayBuffer>("read_document_bytes", { documentId });
+          documentBytes = data.byteLength;
           const task = pdfjsLib.getDocument({ data: new Uint8Array(data) });
           task.onProgress = onProgress;
           return task.promise;
         };
         const pdf = await loadFromBytes();
+        recordDiagnostic("pdf_open_ms", performance.now() - started, { document_bytes: documentBytes, page_count: pdf.numPages });
         if (destroyed) { pdf.destroy(); return; }
         pdfRef.current = pdf;
         setOcrPdfRef(pdf);
@@ -233,7 +241,7 @@ export default function PdfViewer({ documentId, onBackHome, onOpenLibrary, onOpe
           (docId, pages) => invoke("save_pages_text", { documentId: docId, pages }),
           (docId, pageNum) => invoke("mark_page_text_failed", { documentId: docId, pageNumber: pageNum }),
         );
-        eq.onProgress = (done, total) => { setExtractionDone(done); extractionTotal.current = total; };
+        eq.onProgress = setExtractionProgress;
         extractionRef.current = eq;
         const samplePages = samplePagesForOpen(currentPage, pdf.numPages);
 
@@ -260,7 +268,7 @@ export default function PdfViewer({ documentId, onBackHome, onOpenLibrary, onOpe
       pdfRef.current?.destroy();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [documentId]);
+  }, [documentId, loadAttempt]);
 
   useEffect(() => {
     if (currentDocument?.document_type !== "pdf" || basePageWidth <= 0 || pageCount <= 0) return;
@@ -283,8 +291,8 @@ export default function PdfViewer({ documentId, onBackHome, onOpenLibrary, onOpe
 
   useEffect(() => {
     if (!documentId) return;
-    refreshIndexedPageCount(extractionDone === 0 ? 0 : 1000);
-  }, [documentId, extractionDone, refreshIndexedPageCount]);
+    refreshIndexedPageCount(extractionProgress.processed === 0 ? 0 : 1000);
+  }, [documentId, extractionProgress.processed, refreshIndexedPageCount]);
 
   // Active TOC node — derive from currentPage
   useEffect(() => {
@@ -430,16 +438,13 @@ export default function PdfViewer({ documentId, onBackHome, onOpenLibrary, onOpe
     }
   }, [zoom, heights]);
 
-  const performSearch = useCallback(async (query: string) => {
+  const searchIndexedPages = useCallback(async (query: string, jumpToFirst: boolean) => {
     if (!query.trim()) { setSearchResults([]); return; }
     searchCancelledRef.current = false;
     setIsSearching(true);
     setSearchPhase("Searching indexed pages");
+    const started = performance.now();
     try {
-      if (pdfRef.current && pageCount > 0) {
-        extractionRef.current?.enqueueAll(pageCount);
-        refreshIndexedPageCount(250);
-      }
       const results = await invoke<Array<{ pageNum: number; context: string }>>("search_pages_text", {
         documentId,
         query,
@@ -448,12 +453,38 @@ export default function PdfViewer({ documentId, onBackHome, onOpenLibrary, onOpe
       if (searchCancelledRef.current) return;
       setSearchResults(results);
       setCurrentResultIdx(0);
-      if (results.length > 0) setCurrentPage(results[0].pageNum);
+      if (jumpToFirst && results.length > 0) setCurrentPage(results[0].pageNum);
     } finally {
+      recordDiagnostic("search_ms", performance.now() - started, { indexed_pages: indexedPageCount });
       setIsSearching(false);
       setSearchPhase("");
     }
-  }, [documentId, pageCount, refreshIndexedPageCount, setCurrentPage]);
+  }, [documentId, indexedPageCount, setCurrentPage]);
+
+  const performSearch = useCallback(async (query: string) => {
+    if (!query.trim()) { setSearchResults([]); return; }
+    if (pdfRef.current && pageCount > 0) {
+      extractionRef.current?.enqueueAll(pageCount);
+      searchNeedsFinalRefreshRef.current = extractionProgress.processed < pageCount;
+      if (searchNeedsFinalRefreshRef.current) indexingStartedRef.current = performance.now();
+      refreshIndexedPageCount(250);
+    }
+    await searchIndexedPages(query, true);
+  }, [extractionProgress.processed, pageCount, refreshIndexedPageCount, searchIndexedPages]);
+
+  useEffect(() => {
+    if (!searchNeedsFinalRefreshRef.current || extractionProgress.total === 0 || extractionProgress.processed < extractionProgress.total) return;
+    searchNeedsFinalRefreshRef.current = false;
+    if (indexingStartedRef.current !== null) {
+      recordDiagnostic("indexing_ms", performance.now() - indexingStartedRef.current, {
+        processed_pages: extractionProgress.processed,
+        indexed_pages: extractionProgress.indexed,
+      });
+      indexingStartedRef.current = null;
+    }
+    refreshIndexedPageCount(0);
+    searchIndexedPages(searchQuery, false).catch(() => {});
+  }, [extractionProgress, refreshIndexedPageCount, searchIndexedPages, searchQuery]);
 
   // Cancel search on unmount
   useEffect(() => {
@@ -470,6 +501,7 @@ export default function PdfViewer({ documentId, onBackHome, onOpenLibrary, onOpe
     setShowSearch((prev) => {
       if (prev) {
         searchCancelledRef.current = true;
+        searchNeedsFinalRefreshRef.current = false;
         setSearchQuery("");
         setSearchResults([]);
         setCurrentResultIdx(0);
@@ -516,9 +548,9 @@ export default function PdfViewer({ documentId, onBackHome, onOpenLibrary, onOpe
     <div className="pdf-viewer">
       {/* Toolbar */}
       <div className="reader-toolbar">
-        <button className="toolbar-text-button" onClick={onBackHome} aria-label="Back to home">
+        <button className="toolbar-text-button toolbar-home" onClick={onBackHome} aria-label="Back to library">
           <Icon name="home" />
-          Back to home
+          <span>Library</span>
         </button>
         <span className="toolbar-divider" />
         <button className="icon-button" onClick={() => goToPage(currentPage - 1)} disabled={currentPage <= 1} aria-label="Previous page"><Icon name="prev" /></button>
@@ -544,7 +576,7 @@ export default function PdfViewer({ documentId, onBackHome, onOpenLibrary, onOpe
           </button>
           <button className="toolbar-text-button" onClick={onOpenLibrary} aria-label="Open library">
             <Icon name="books" />
-            Library
+            Books
           </button>
           <button className="toolbar-text-button" onClick={() => onOpenAi?.()} aria-label="Open AI assistant">
             <Icon name="ask" />
@@ -576,9 +608,9 @@ export default function PdfViewer({ documentId, onBackHome, onOpenLibrary, onOpe
             {searchPhase
               ? searchPhase
               : indexedPageCount === 0
-              ? "Waiting for index"
-              : extractionDone < extractionTotal.current
-                ? `Indexed results (${indexedPageCount}/${pageCount})`
+              ? "No pages indexed yet"
+              : extractionProgress.processed < extractionProgress.total
+                ? `Partial results · indexed ${indexedPageCount}/${pageCount}`
                 : `Indexed results (${indexedPageCount})`}
           </span>
           {!isSearching && searchResults.length > 0 && (
@@ -607,6 +639,7 @@ export default function PdfViewer({ documentId, onBackHome, onOpenLibrary, onOpe
         {error ? (
           <div style={{ padding: 24, textAlign: "center" }}>
             <p style={{ color: "var(--danger-color)", marginBottom: 8 }}>{error}</p>
+            <button className="primary-action" onClick={() => setLoadAttempt((attempt) => attempt + 1)}>Retry</button>
           </div>
         ) : pageCount === 0 ? (
           <div style={{ padding: 24, textAlign: "center", color: "var(--text-muted)" }}>

@@ -50,77 +50,6 @@ pub struct ClearAiHistoryResult {
     pub deleted_memories: i64,
 }
 
-#[derive(Debug, Deserialize)]
-pub struct GetOrCreateSessionInput {
-    pub document_id: String,
-    pub scope_type: String,
-    pub scope_json: String,
-}
-
-#[tauri::command]
-pub fn get_or_create_ai_session(
-    db: State<DbState>,
-    input: GetOrCreateSessionInput,
-) -> Result<AiSession, String> {
-    let conn = db.0.lock().map_err(|e| e.to_string())?;
-
-    // Try to find an existing reusable session
-    let existing = conn
-        .query_row(
-            "SELECT id, document_id, title, scope_type, scope_json, session_summary, last_compacted_message_id, created_at, updated_at
-             FROM ai_sessions
-             WHERE document_id = ?1 AND scope_type = ?2 AND scope_json = ?3
-             ORDER BY updated_at DESC LIMIT 1",
-            rusqlite::params![input.document_id, input.scope_type, input.scope_json],
-            |row| {
-                Ok(AiSession {
-                    id: row.get(0)?,
-                    document_id: row.get(1)?,
-                    title: row.get(2)?,
-                    scope_type: row.get(3)?,
-                    scope_json: row.get(4)?,
-                    session_summary: row.get(5)?,
-                    last_compacted_message_id: row.get(6)?,
-                    created_at: row.get(7)?,
-                    updated_at: row.get(8)?,
-                })
-            },
-        );
-
-    if let Ok(session) = existing {
-        return Ok(session);
-    }
-
-    // Create new session
-    let id = Uuid::new_v4().to_string();
-    let now = Utc::now().to_rfc3339();
-    conn.execute(
-        "INSERT INTO ai_sessions (id, document_id, scope_type, scope_json, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        rusqlite::params![
-            id,
-            input.document_id,
-            input.scope_type,
-            input.scope_json,
-            now,
-            now
-        ],
-    )
-    .map_err(|e| e.to_string())?;
-
-    Ok(AiSession {
-        id,
-        document_id: input.document_id,
-        title: None,
-        scope_type: input.scope_type,
-        scope_json: input.scope_json,
-        session_summary: None,
-        last_compacted_message_id: None,
-        created_at: now.clone(),
-        updated_at: now,
-    })
-}
-
 fn list_ai_sessions_for_conn(
     conn: &rusqlite::Connection,
     document_id: &str,
@@ -361,60 +290,6 @@ pub fn get_session_messages(
     get_session_messages_for_conn(&conn, &session_id, limit.unwrap_or(50))
 }
 
-#[derive(Debug, Deserialize)]
-pub struct SaveAiMessageInput {
-    pub session_id: String,
-    pub role: String,
-    pub content: String,
-    pub page_number: Option<i64>,
-    pub context_snapshot_json: Option<String>,
-    pub citations_json: Option<String>,
-}
-
-#[tauri::command]
-pub fn save_ai_message(
-    db: State<DbState>,
-    input: SaveAiMessageInput,
-) -> Result<serde_json::Value, String> {
-    let conn = db.0.lock().map_err(|e| e.to_string())?;
-    let id = Uuid::new_v4().to_string();
-    let now = Utc::now().to_rfc3339();
-
-    conn.execute(
-        "INSERT INTO ai_messages (id, session_id, role, content, citations_json, context_snapshot_json, page_number, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-        rusqlite::params![id, input.session_id, input.role, input.content,
-            input.citations_json, input.context_snapshot_json, input.page_number, now],
-    )
-    .map_err(|e| e.to_string())?;
-
-    if input.role == "assistant" {
-        let document_id: String = conn
-            .query_row(
-                "SELECT document_id FROM ai_sessions WHERE id = ?1",
-                rusqlite::params![input.session_id],
-                |row| row.get(0),
-            )
-            .map_err(|e| e.to_string())?;
-        save_citations_for_message(&conn, &id, &document_id, &input.content, &now)?;
-    }
-
-    // Update session timestamp
-    conn.execute(
-        "UPDATE ai_sessions SET updated_at = ?1 WHERE id = ?2",
-        rusqlite::params![now, input.session_id],
-    )
-    .map_err(|e| e.to_string())?;
-
-    Ok(serde_json::json!({
-        "id": id,
-        "session_id": input.session_id,
-        "role": input.role,
-        "content": input.content,
-        "created_at": now,
-    }))
-}
-
 // ---------------------------------------------------------------------------
 // Compaction
 // ---------------------------------------------------------------------------
@@ -599,16 +474,6 @@ pub struct ReadingState {
     pub updated_at: String,
 }
 
-#[derive(Debug, Deserialize)]
-pub struct UpdateReadingStateInput {
-    pub document_id: String,
-    pub current_page_number: Option<i64>,
-    pub current_toc_node_id: Option<String>,
-    pub progress_ratio: Option<f64>,
-    pub recent_page_number: Option<i64>,
-    pub last_selection_anchor: Option<String>,
-}
-
 #[tauri::command]
 pub fn get_reading_state(
     db: State<DbState>,
@@ -639,93 +504,6 @@ pub fn get_reading_state(
         .map_err(|e| e.to_string())?;
 
     Ok(rows.next().and_then(|r| r.ok()))
-}
-
-#[tauri::command]
-pub fn update_reading_state(
-    db: State<DbState>,
-    input: UpdateReadingStateInput,
-) -> Result<ReadingState, String> {
-    let conn = db.0.lock().map_err(|e| e.to_string())?;
-    let now = Utc::now().to_rfc3339();
-
-    // Get or create reading state
-    let existing = conn
-        .query_row(
-            "SELECT document_id, current_page_number, current_toc_node_id, progress_ratio,
-                    recent_pages_json, last_selection_anchor_json, last_opened_at, updated_at
-             FROM reading_states WHERE document_id = ?1",
-            rusqlite::params![input.document_id],
-            |row| {
-                Ok(ReadingState {
-                    document_id: row.get(0)?,
-                    current_page_number: row.get(1)?,
-                    current_toc_node_id: row.get(2)?,
-                    progress_ratio: row.get(3)?,
-                    recent_pages_json: row.get(4)?,
-                    last_selection_anchor_json: row.get(5)?,
-                    last_opened_at: row.get(6)?,
-                    updated_at: row.get(7)?,
-                })
-            },
-        )
-        .ok();
-
-    // Build the update
-    let page = input.current_page_number.unwrap_or(
-        existing
-            .as_ref()
-            .map(|r| r.current_page_number)
-            .unwrap_or(1),
-    );
-    let toc_id = input.current_toc_node_id.or(existing
-        .as_ref()
-        .and_then(|r| r.current_toc_node_id.clone()));
-    let progress = input
-        .progress_ratio
-        .or(existing.as_ref().and_then(|r| r.progress_ratio));
-    let selection = input.last_selection_anchor.or(existing
-        .as_ref()
-        .and_then(|r| r.last_selection_anchor_json.clone()));
-
-    // Update recent pages
-    let recent = if let Some(new_page) = input.recent_page_number {
-        let mut pages: Vec<i64> = existing
-            .as_ref()
-            .and_then(|r| r.recent_pages_json.as_deref())
-            .and_then(|j| serde_json::from_str(j).ok())
-            .unwrap_or_default();
-        pages.retain(|&p| p != new_page);
-        pages.insert(0, new_page);
-        pages.truncate(10);
-        Some(serde_json::to_string(&pages).unwrap_or_default())
-    } else {
-        existing.as_ref().and_then(|r| r.recent_pages_json.clone())
-    };
-
-    let last_opened = existing
-        .as_ref()
-        .and_then(|r| r.last_opened_at.clone())
-        .unwrap_or_else(|| now.clone());
-
-    conn.execute(
-        "INSERT OR REPLACE INTO reading_states
-         (document_id, current_page_number, current_toc_node_id, progress_ratio, recent_pages_json, last_selection_anchor_json, last_opened_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-        rusqlite::params![input.document_id, page, toc_id, progress, recent, selection, last_opened, now],
-    )
-    .map_err(|e| e.to_string())?;
-
-    Ok(ReadingState {
-        document_id: input.document_id,
-        current_page_number: page,
-        current_toc_node_id: toc_id,
-        progress_ratio: progress,
-        recent_pages_json: recent,
-        last_selection_anchor_json: selection,
-        last_opened_at: Some(last_opened),
-        updated_at: now,
-    })
 }
 
 // ---------------------------------------------------------------------------

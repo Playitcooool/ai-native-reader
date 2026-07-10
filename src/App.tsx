@@ -5,7 +5,7 @@ import { ToastProvider, useToast } from "./components/Toast";
 import SettingsDialog from "./components/SettingsDialog";
 import { useSettingsStore } from "./stores/settingsStore";
 import { useDocumentStore } from "./stores/documentStore";
-import { Suspense, lazy, startTransition, useCallback, useEffect, useState } from "react";
+import { Suspense, lazy, startTransition, useCallback, useEffect, useRef, useState } from "react";
 import { useAiStore } from "./stores/aiStore";
 import { useUndoStore } from "./stores/undoStore";
 
@@ -37,8 +37,26 @@ function App() {
   const [readerDrawerTab, setReaderDrawerTab] = useState<SidebarTab>("library");
   const [aiOpen, setAiOpen] = useState(false);
   const [aiInputDraft, setAiInputDraft] = useState<string>();
+  const returnFocusRef = useRef<HTMLElement | null>(null);
+
+  const rememberFocus = () => {
+    returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  };
+
+  const restoreFocus = () => requestAnimationFrame(() => returnFocusRef.current?.focus());
+
+  const closeLeftPanel = useCallback(() => {
+    setLeftOpen(false);
+    restoreFocus();
+  }, []);
+
+  const closeAiPanel = useCallback(() => {
+    setAiOpen(false);
+    restoreFocus();
+  }, []);
 
   const openAiPanel = useCallback((draft?: string) => {
+    rememberFocus();
     setLeftOpen(false);
     setAiOpen(true);
     if (draft) setAiInputDraft(draft);
@@ -51,16 +69,31 @@ function App() {
   }, [setCurrentDocument]);
 
   const openLibraryPanel = useCallback(() => {
+    rememberFocus();
     setReaderDrawerTab("library");
     setAiOpen(false);
     setLeftOpen(true);
   }, []);
 
   const openContentsPanel = useCallback(() => {
+    rememberFocus();
     setReaderDrawerTab("contents");
     setAiOpen(false);
     setLeftOpen(true);
   }, []);
+
+  useEffect(() => {
+    if (!leftOpen && !aiOpen) return;
+    const selector = leftOpen ? ".reader-drawer .sheet-close" : ".ai-sheet .sheet-close";
+    requestAnimationFrame(() => document.querySelector<HTMLElement>(selector)?.focus());
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (leftOpen) closeLeftPanel();
+      else closeAiPanel();
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [aiOpen, closeAiPanel, closeLeftPanel, leftOpen]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -171,16 +204,16 @@ function App() {
           </Suspense>
         </div>
         {leftOpen && (
-          <div className="drawer-backdrop" onMouseDown={() => setLeftOpen(false)}>
-            <aside className="reader-drawer" onMouseDown={(e) => e.stopPropagation()}>
-              <button aria-label="Close drawer" className="sheet-close" onClick={() => setLeftOpen(false)}>×</button>
+          <div className="drawer-backdrop" onMouseDown={closeLeftPanel}>
+            <aside className="reader-drawer" role="dialog" aria-modal="true" aria-label="Reader navigation" onMouseDown={(e) => e.stopPropagation()}>
+              <button aria-label="Close drawer" className="sheet-close" onClick={closeLeftPanel}>×</button>
               <LeftSidebar variant="reader" initialTab={readerDrawerTab} />
             </aside>
           </div>
         )}
         {aiOpen && currentDocument && (
           <aside className="ai-sheet" role="complementary" aria-label="AI reading companion">
-            <button aria-label="Close AI" className="sheet-close" onClick={() => setAiOpen(false)}>×</button>
+            <button aria-label="Close AI" className="sheet-close" onClick={closeAiPanel}>×</button>
             <Suspense fallback={<div style={{ padding: 24, textAlign: "center", color: "var(--text-muted)", fontSize: 13 }}>Loading…</div>}>
               <AiSidebar
                 draftInput={aiInputDraft}

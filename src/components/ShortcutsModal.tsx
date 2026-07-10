@@ -10,7 +10,7 @@ const SHORTCUTS = [
   { key: "+ − 0", desc: "Zoom in / out / reset" },
   { key: "E", desc: "Explain selection" },
   { key: "Esc", desc: "Clear selection" },
-  { key: "⌘O", desc: "Open PDF" },
+  { key: "⌘O", desc: "Open document" },
   { key: "?", desc: "Toggle this help" },
 ] as const;
 

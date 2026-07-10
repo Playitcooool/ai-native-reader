@@ -324,10 +324,10 @@ export default function LeftSidebar({
             ) : documents.length === 0 ? (
               <>
                 <p style={{ color: "var(--text-muted)", fontSize: 14 }}>
-                  No PDFs opened yet.
+                  No documents opened yet.
                 </p>
                 <p style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 4 }}>
-                  Press <kbd style={{ padding: "1px 4px", background: "var(--bg-tertiary)", borderRadius: 2, fontFamily: "inherit", border: "1px solid var(--border-color)" }}>Cmd+O</kbd> to open a PDF.
+                  Press <kbd style={{ padding: "1px 4px", background: "var(--bg-tertiary)", borderRadius: 2, fontFamily: "inherit", border: "1px solid var(--border-color)" }}>Cmd+O</kbd> to open a document.
                 </p>
               </>
             ) : visibleDocuments.length === 0 ? (

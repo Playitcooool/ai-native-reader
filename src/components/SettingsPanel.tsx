@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
+import { writeTextFile } from "@tauri-apps/plugin-fs";
+import { getVersion } from "@tauri-apps/api/app";
+import { createDiagnosticReport, diagnosticsEnabled, setDiagnosticsEnabled } from "../features/diagnostics";
 import {
   useSettingsStore,
   type DefaultEpubFontSize,
@@ -69,6 +72,8 @@ export default function SettingsPanel() {
   const [restoringBackup, setRestoringBackup] = useState(false);
   const [clearingTextCache, setClearingTextCache] = useState(false);
   const [clearingAiHistory, setClearingAiHistory] = useState(false);
+  const [diagnostics, setDiagnostics] = useState(diagnosticsEnabled);
+  const [exportingDiagnostics, setExportingDiagnostics] = useState(false);
   const initialLoadDone = useRef(false);
 
   // Populate form from saved settings — only from blank state, never after save
@@ -205,6 +210,24 @@ export default function SettingsPanel() {
       setStatus({ ok: false, msg: `Cleanup failed: ${err}` });
     } finally {
       setClearingAiHistory(false);
+    }
+  };
+
+  const handleExportDiagnostics = async () => {
+    if (!diagnostics || exportingDiagnostics) return;
+    setExportingDiagnostics(true);
+    try {
+      const destinationPath = await save({
+        defaultPath: `rustybooks-diagnostics-${new Date().toISOString().slice(0, 10)}.json`,
+        filters: [{ name: "JSON", extensions: ["json"] }],
+      });
+      if (!destinationPath) return;
+      await writeTextFile(destinationPath, JSON.stringify(createDiagnosticReport(await getVersion()), null, 2));
+      setStatus({ ok: true, msg: "Anonymous diagnostics exported." });
+    } catch (err) {
+      setStatus({ ok: false, msg: `Diagnostics export failed: ${err}` });
+    } finally {
+      setExportingDiagnostics(false);
     }
   };
 
@@ -448,6 +471,20 @@ export default function SettingsPanel() {
             <input type="checkbox" checked={rememberSidebarTab} onChange={(e) => setRememberSidebarTab(e.target.checked)} />
             Remember sidebar tab
           </label>
+          <label className="settings-checkbox">
+            <input type="checkbox" checked={diagnostics} onChange={(e) => {
+              setDiagnostics(e.target.checked);
+              setDiagnosticsEnabled(e.target.checked);
+            }} />
+            Collect anonymous performance diagnostics locally
+          </label>
+          <p className="settings-muted">Off by default. Stores at most 200 timing events in memory and never sends them over the network.</p>
+          <button type="button" className="settings-primary-button" onClick={handleExportDiagnostics} disabled={!diagnostics || exportingDiagnostics}>
+            {exportingDiagnostics ? "Exporting..." : "Export Diagnostics"}
+          </button>
+          {status && (
+            <p className={status.ok ? "settings-status-ok" : "settings-status-error"}>{status.msg}</p>
+          )}
         </section>
       </div>
     </div>

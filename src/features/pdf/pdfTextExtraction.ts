@@ -1,5 +1,6 @@
 import type { TextItem } from "pdfjs-dist/types/src/display/api";
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
+import { recordDiagnostic } from "../diagnostics";
 
 /**
  * Position-aware PDF text item joiner.
@@ -7,7 +8,7 @@ import { invoke as tauriInvoke } from "@tauri-apps/api/core";
  * and items within each line left-to-right.
  * Avoids the naive item.str.join(' ') that garbles two-column layouts.
  */
-export function joinPdfTextItemsBasic(items: TextItem[]): string {
+function joinPdfTextItemsBasic(items: TextItem[]): string {
   const nonEmpty = items.filter((item) => item.str?.trim().length > 0);
   const groups = new Map<number, TextItem[]>();
 
@@ -44,7 +45,7 @@ export interface PageExtractionResult {
   charCount: number;
 }
 
-export type TextReadyStatus = "ready" | "empty" | "unavailable";
+type TextReadyStatus = "ready" | "empty" | "unavailable";
 
 interface PageTextCoverage {
   page_number: number;
@@ -102,7 +103,7 @@ export function samplePagesForOpen(currentPage: number, pageCount: number): numb
 }
 
 /** Render one page and let the backend OCR + save it. */
-export async function ocrPage(
+async function ocrPage(
   documentId: string,
   pageNumber: number,
   pdf: PdfLike,
@@ -126,7 +127,9 @@ export async function ocrPage(
   const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
   if (!blob) return "unavailable";
   const imagePng = new Uint8Array(await blob.arrayBuffer());
+  const started = performance.now();
   const status = await invokeFn<string>("ocr_page", { documentId, pageNumber, imagePng });
+  recordDiagnostic("ocr_ms", performance.now() - started);
   return status === "ok" || status === "skipped" ? "ready" : "empty";
 }
 
@@ -217,7 +220,8 @@ export class PageExtractionQueue {
   private queue: Map<number, number> = new Map(); // pageNumber → priority (lower = higher)
   private processing = false;
   private destroyed = false;
-  private extracted = new Set<number>();
+  private processed = new Set<number>();
+  private indexedCount = 0;
   /** Pages confirmed to have no text layer (scanned). OCR triggered on demand. */
   noTextPages = new Set<number>();
   private buffer: { pageNumber: number; text: string }[] = [];
@@ -226,7 +230,7 @@ export class PageExtractionQueue {
   private readonly BATCH_SIZE = 20;
   private readonly BATCH_MS = 3000;
   /** Optional progress callback: (extractedCount, totalPages) => void */
-  onProgress: ((extracted: number, total: number) => void) | null = null;
+  onProgress: ((progress: { processed: number; indexed: number; total: number }) => void) | null = null;
 
   constructor(
     pdf: any,
@@ -265,7 +269,7 @@ export class PageExtractionQueue {
    */
   addPage(pageNumber: number, priority: number): void {
     if (this.destroyed) return;
-    if (this.extracted.has(pageNumber) || this.noTextPages.has(pageNumber)) return;
+    if (this.processed.has(pageNumber)) return;
     const existing = this.queue.get(pageNumber);
     if (existing !== undefined && existing <= priority) return;
     this.queue.set(pageNumber, priority);
@@ -291,8 +295,9 @@ export class PageExtractionQueue {
    * Enqueue all remaining pages at low priority.
    */
   enqueueAll(totalPages: number): void {
+    this.totalPages = totalPages;
     for (let i = 1; i <= totalPages; i++) {
-      if (!this.extracted.has(i) && !this.noTextPages.has(i) && !this.queue.has(i)) {
+      if (!this.processed.has(i) && !this.queue.has(i)) {
         this.queue.set(i, 4);
       }
     }
@@ -320,16 +325,15 @@ export class PageExtractionQueue {
       }
       this.queue.delete(pageNumber);
 
-      if (this.extracted.has(pageNumber)) continue;
+      if (this.processed.has(pageNumber)) continue;
 
       try {
         const result = await extractPageText(this.pdf, pageNumber);
         if (this.destroyed) return;
         if (result.text.trim()) {
-          this.extracted.add(pageNumber);
+          this.indexedCount++;
           this.buffer.push({ pageNumber, text: result.text });
           this.scheduleFlush();
-          this.onProgress?.(this.extracted.size, this.totalPages);
         } else {
           // Scanned page — no text layer. OCR triggered on demand by AI workflow.
           this.noTextPages.add(pageNumber);
@@ -338,6 +342,11 @@ export class PageExtractionQueue {
         if (this.destroyed) return;
         console.warn(`Failed to extract page ${pageNumber}:`, err);
         this.failFn(this.documentId, pageNumber).catch(() => {});
+      } finally {
+        if (!this.destroyed) {
+          this.processed.add(pageNumber);
+          this.onProgress?.({ processed: this.processed.size, indexed: this.indexedCount, total: this.totalPages });
+        }
       }
 
       // Yield to UI thread every page

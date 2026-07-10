@@ -2,10 +2,14 @@ use super::settings::DbState;
 use crate::db::models::{Collection, Document, DocumentCollection};
 use chrono::Utc;
 use std::path::PathBuf;
-use tauri::State;
+use tauri::{ipc::Response, State};
 use uuid::Uuid;
 
 const MAX_DOCUMENT_BYTES: u64 = 512 * 1024 * 1024;
+
+fn binary_response(bytes: Vec<u8>) -> Response {
+    Response::new(bytes)
+}
 
 fn validate_document_size_value(size: u64) -> Result<(), String> {
     if size > MAX_DOCUMENT_BYTES {
@@ -169,7 +173,7 @@ pub fn get_document(db: State<DbState>, document_id: String) -> Result<Option<Do
 }
 
 #[tauri::command]
-pub fn read_document_bytes(db: State<DbState>, document_id: String) -> Result<Vec<u8>, String> {
+pub fn read_document_bytes(db: State<DbState>, document_id: String) -> Result<Response, String> {
     let (file_path, access_bookmark): (String, Option<Vec<u8>>) = {
         let conn = db.0.lock().map_err(|e| e.to_string())?;
         conn.query_row(
@@ -186,7 +190,7 @@ pub fn read_document_bytes(db: State<DbState>, document_id: String) -> Result<Ve
     crate::file_access::with_access(&file_path, access_bookmark.as_deref(), || {
         validate_document_size(&file_path)
     })?;
-    crate::file_access::read(&file_path, access_bookmark.as_deref())
+    crate::file_access::read(&file_path, access_bookmark.as_deref()).map(binary_response)
 }
 
 #[tauri::command]
@@ -504,5 +508,16 @@ mod tests {
     fn rejects_oversized_documents() {
         assert!(validate_document_size_value(MAX_DOCUMENT_BYTES).is_ok());
         assert!(validate_document_size_value(MAX_DOCUMENT_BYTES + 1).is_err());
+    }
+
+    #[test]
+    fn returns_document_bytes_without_json_encoding() {
+        use tauri::ipc::{InvokeResponseBody, IpcResponse};
+
+        let bytes = vec![0, 1, 127, 128, 255];
+        match binary_response(bytes.clone()).body().unwrap() {
+            InvokeResponseBody::Raw(body) => assert_eq!(body, bytes),
+            InvokeResponseBody::Json(_) => panic!("document bytes were JSON encoded"),
+        }
     }
 }

@@ -87,7 +87,7 @@ export function buildCumulativeOffsets(heights: number[], count: number): number
   return offsets;
 }
 
-export function getTotalHeight(offsets: number[], heights: number[], count: number): number {
+function getTotalHeight(offsets: number[], heights: number[], count: number): number {
   return count > 0 ? (offsets[count - 1] ?? 0) + (heights[count - 1] ?? 0) : 0;
 }
 

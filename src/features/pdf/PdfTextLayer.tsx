@@ -20,7 +20,7 @@ export interface TextHighlight {
 
 const textContentCache = new WeakMap<PDFPageProxy, Promise<{ items: unknown[] }>>();
 
-export function getCachedTextContent(page: PDFPageProxy): Promise<{ items: unknown[] }> {
+function getCachedTextContent(page: PDFPageProxy): Promise<{ items: unknown[] }> {
   let cached = textContentCache.get(page);
   if (!cached) {
     cached = page.getTextContent() as Promise<{ items: unknown[] }>;

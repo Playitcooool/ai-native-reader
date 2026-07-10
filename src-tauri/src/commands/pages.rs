@@ -78,50 +78,6 @@ pub(crate) fn page_row_id(document_id: &str, page_number: i64) -> String {
 }
 
 #[tauri::command]
-pub fn save_page_text(
-    db: State<DbState>,
-    document_id: String,
-    page_number: i64,
-    text: String,
-) -> Result<(), String> {
-    let conn = db.0.lock().map_err(|e| e.to_string())?;
-    insert_page_text(&conn, &document_id, page_number, &text, "ready")
-        .map_err(|e| e.to_string())?;
-    cache_page_text(&document_id, page_number, &text);
-    Ok(())
-}
-
-#[tauri::command]
-pub fn get_page_text(
-    db: State<DbState>,
-    document_id: String,
-    page_number: i64,
-) -> Result<Option<PageText>, String> {
-    let conn = db.0.lock().map_err(|e| e.to_string())?;
-    let mut stmt = conn
-        .prepare(
-            "SELECT id, document_id, page_number, text, text_status, char_count
-             FROM pages WHERE document_id = ?1 AND page_number = ?2",
-        )
-        .map_err(|e| e.to_string())?;
-
-    let mut rows = stmt
-        .query_map(rusqlite::params![document_id, page_number], |row| {
-            Ok(PageText {
-                id: row.get(0)?,
-                document_id: row.get(1)?,
-                page_number: row.get(2)?,
-                text: row.get(3)?,
-                text_status: row.get(4)?,
-                char_count: row.get(5)?,
-            })
-        })
-        .map_err(|e| e.to_string())?;
-
-    Ok(rows.next().and_then(|r| r.ok()))
-}
-
-#[tauri::command]
 pub fn get_pages_text(
     db: State<DbState>,
     document_id: String,
