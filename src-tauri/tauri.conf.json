@@ -1,6 +1,6 @@
 {
   "productName": "RustyBooks",
-  "version": "0.2.33",
+  "version": "0.2.52",
   "identifier": "com.rustybooks.reader",
   "build": {
     "frontendDist": "../dist",
