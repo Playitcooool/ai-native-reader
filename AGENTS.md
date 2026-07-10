@@ -30,6 +30,7 @@ Rust code follows `cargo fmt`. Keep Tauri commands grouped by domain under `src-
 ## Testing Guidelines
 
 Use Vitest for frontend logic tests in `tests/`. Keep tests pure and fast; avoid DOM setup unless the behavior needs it. Add focused tests for parsers, range/page logic, and helper functions. Run `npm test` before frontend commits and `cargo test` after Rust changes.
+For test, you can use true local files to do the test and screenshots to verify.Local pdf file:/Users/weiciruan/Downloads/2403.18105v2.pdf, local epub file :'/Users/weiciruan/Desktop/books/MyEconLab -- for The Economics of Money, Banking, and Financial Markets, 12e (Frederic S. Mishkin [Mishkin, Frederic S.]) (z-library.sk, 1lib.sk, z-lib.sk).epub'
 
 ## Commit & Pull Request Guidelines
 
