@@ -1,6 +1,6 @@
 {
   "name": "rustybooks",
-  "version": "0.2.52",
+  "version": "0.2.54",
   "private": true,
   "type": "module",
   "scripts": {
