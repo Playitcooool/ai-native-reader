@@ -3,9 +3,9 @@ import { autoFontPercentage, epubReadingPreferenceKey, loadEpubReadingPreference
 
 describe("EPUB reading preferences", () => {
   it("defaults safely and restores valid values", () => {
-    expect(loadEpubReadingPreference("a", { getItem: () => null })).toEqual({ flow: "paginated", fontMode: "auto" });
-    expect(loadEpubReadingPreference("a", { getItem: (key) => key === epubReadingPreferenceKey("a") ? '{"flow":"scrolled-continuous","fontMode":"manual"}' : null }))
-      .toEqual({ flow: "scrolled-continuous", fontMode: "manual" });
+    expect(loadEpubReadingPreference("a", { getItem: () => null })).toEqual({ fontMode: "auto" });
+    expect(loadEpubReadingPreference("a", { getItem: (key) => key === epubReadingPreferenceKey("a") ? '{"flow":"paginated","fontMode":"manual"}' : null }))
+      .toEqual({ fontMode: "manual" });
   });
 
   it("rounds Auto sizing to 10% and clamps it", () => {
