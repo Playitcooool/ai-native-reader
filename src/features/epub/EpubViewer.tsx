@@ -15,6 +15,7 @@ import { isAllowedExternalUrl, openExternalUrl } from "../links/externalLinks";
 import { percentToChapter } from "./epubProgress";
 import { epubCfiKey, parseEpubCfiAnchor, snapshotFromLocation, type EpubCfiAnchor, type EpubLocationSnapshot } from "./epubAnchors";
 import { EPUB_BOOK_OPTIONS, EPUB_THEME_RULES } from "./epubViewerConfig";
+import { waitForEpubInitialLayout } from "./epubInitialLayout";
 import { autoFontPercentage, epubReadingPreferenceKey, loadEpubReadingPreference, type EpubFlow, type EpubFontMode } from "./epubReadingPreferences";
 
 interface EpubViewerProps {
@@ -334,11 +335,14 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
         applyTheme();
         const savedCfi = localStorage.getItem(epubCfiKey(documentId));
         const fallbackSection = percentToChapter(currentDocument?.last_page ?? 0, Math.max(1, count)) - 1;
-        if (savedCfi) {
-          await rendition.display(savedCfi);
-        } else {
-          await rendition.display(Math.max(0, fallbackSection));
-        }
+        const displayInitialTarget = () => savedCfi
+          ? rendition.display(savedCfi)
+          : rendition.display(Math.max(0, fallbackSection));
+        await displayInitialTarget();
+        const contentsList = (rendition.getContents?.() ?? []) as Contents | Contents[];
+        const initialContents = (Array.isArray(contentsList) ? contentsList : [contentsList])[0];
+        if (initialContents) await waitForEpubInitialLayout(initialContents.document);
+        if (!dead) await displayInitialTarget();
         if (!dead) {
           setLoading(false);
           void book.locations.generate(1600).catch(() => null);
