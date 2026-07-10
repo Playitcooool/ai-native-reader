@@ -154,7 +154,10 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       if (doc.document_type === 'epub' && doc.parse_status !== 'ready') {
         invoke("extract_epub_content", { documentId: doc.id, filePath: doc.file_path })
           .then(() => invoke<Document | null>("get_document", { documentId: doc.id }))
-          .then((updated) => { if (updated) set({ currentDocument: updated }); })
+          .then((updated) => { if (updated) set((s) => ({
+            currentDocument: updated,
+            documents: s.documents.map((item) => item.id === updated.id ? updated : item),
+          })); })
           .catch(() => {});
       }
       // Refresh metadata for PDFs that were imported without extraction
@@ -296,12 +299,6 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
     if (!selected) return;
     const doc = await invoke<Document>("import_document", { filePath: selected });
     get().setCurrentDocument(doc);
-    if (doc.document_type === 'epub') {
-      await invoke("extract_epub_content", { documentId: doc.id, filePath: doc.file_path }).catch(() => {});
-      // Refresh currentDocument with updated EPUB metadata (title, author)
-      const updated = await invoke<Document | null>("get_document", { documentId: doc.id }).catch(() => null);
-      if (updated) get().setCurrentDocument(updated);
-    }
     const docs = await invoke<Document[]>("get_documents");
     get().setDocuments(docs);
   },

@@ -1,11 +1,11 @@
-export type InkSpace = "pdf-page" | "epub-section" | "epub-rendition";
+export type InkSpace = "pdf-page" | "epub-section" | "epub-rendition" | "epub-content";
 
 export interface InkPoint {
   x: number;
   y: number;
 }
 
-export interface InkAnchor {
+export interface LegacyInkAnchor {
   version: 1;
   space: InkSpace;
   points: InkPoint[];
@@ -18,6 +18,19 @@ export interface InkAnchor {
   viewportWidth?: number;
   viewportHeight?: number;
 }
+
+export interface EpubInkAnchor {
+  version: 2;
+  space: "epub-content";
+  points: InkPoint[];
+  width: number;
+  cfi: string;
+  href?: string;
+  spineIndex?: number;
+  fontSize: number;
+}
+
+export type InkAnchor = LegacyInkAnchor | EpubInkAnchor;
 
 export interface InkToolState {
   activeTool: "none" | "pen" | "eraser";
@@ -36,21 +49,22 @@ export const PEN_WIDTHS = [2, 4, 8, 12];
 export function parseInkAnchor(value: string | null): InkAnchor | null {
   if (!value) return null;
   try {
-    const parsed = JSON.parse(value) as Partial<InkAnchor>;
+    const parsed = JSON.parse(value) as Record<string, any>;
     if (
-      parsed.version !== 1 ||
-      (parsed.space !== "pdf-page" && parsed.space !== "epub-section" && parsed.space !== "epub-rendition") ||
+      (parsed.version !== 1 && parsed.version !== 2) ||
+      (parsed.version === 1 && parsed.space !== "pdf-page" && parsed.space !== "epub-section" && parsed.space !== "epub-rendition") ||
+      (parsed.version === 2 && (parsed.space !== "epub-content" || typeof parsed.cfi !== "string" || typeof parsed.fontSize !== "number")) ||
       !Array.isArray(parsed.points) ||
       typeof parsed.width !== "number"
     ) {
       return null;
     }
     const points = parsed.points
-      .filter((p): p is InkPoint => typeof p?.x === "number" && typeof p?.y === "number")
-      .map((p) => ({ x: clamp01(p.x), y: clamp01(p.y) }));
+      .filter((p: unknown): p is InkPoint => typeof (p as InkPoint)?.x === "number" && typeof (p as InkPoint)?.y === "number")
+      .map((p: InkPoint) => parsed.version === 1 ? ({ x: clamp01(p.x), y: clamp01(p.y) }) : ({ x: p.x, y: p.y }));
     if (points.length < 2) return null;
     return {
-      version: 1,
+      version: parsed.version,
       space: parsed.space,
       points,
       width: Math.max(0.5, parsed.width),
@@ -61,10 +75,15 @@ export function parseInkAnchor(value: string | null): InkAnchor | null {
       spineIndex: typeof parsed.spineIndex === "number" ? parsed.spineIndex : undefined,
       viewportWidth: typeof parsed.viewportWidth === "number" ? parsed.viewportWidth : undefined,
       viewportHeight: typeof parsed.viewportHeight === "number" ? parsed.viewportHeight : undefined,
-    };
+      ...(parsed.version === 2 ? { cfi: parsed.cfi!, fontSize: Math.max(1, parsed.fontSize!) } : {}),
+    } as InkAnchor;
   } catch {
     return null;
   }
+}
+
+export function projectEpubInk(anchor: EpubInkAnchor, origin: InkPoint, fontSize: number): InkPoint[] {
+  return anchor.points.map((point) => ({ x: origin.x + point.x * fontSize, y: origin.y + point.y * fontSize }));
 }
 
 export function normalizePoint(point: InkPoint, size: InkSize): InkPoint {

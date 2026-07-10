@@ -9,11 +9,13 @@ import { Icon } from "../../components/Icons";
 import SelectionMenu from "../pdf/SelectionMenu";
 import InkCanvasOverlay from "../ink/InkCanvasOverlay";
 import InkToolbarControls from "../ink/InkToolbarControls";
-import { parseInkAnchor, type InkToolState } from "../ink/inkGeometry";
+import { parseInkAnchor, projectEpubInk, simplifyLocalPoints, type EpubInkAnchor, type InkAnchor, type InkPoint, type InkToolState } from "../ink/inkGeometry";
 import { draftFromSelection } from "../ai/aiPanelHelpers";
 import { isAllowedExternalUrl, openExternalUrl } from "../links/externalLinks";
 import { percentToChapter } from "./epubProgress";
 import { epubCfiKey, parseEpubCfiAnchor, snapshotFromLocation, type EpubCfiAnchor, type EpubLocationSnapshot } from "./epubAnchors";
+import { EPUB_BOOK_OPTIONS, EPUB_THEME_RULES } from "./epubViewerConfig";
+import { autoFontPercentage, epubReadingPreferenceKey, loadEpubReadingPreference, type EpubFlow, type EpubFontMode } from "./epubReadingPreferences";
 
 interface EpubViewerProps {
   documentId: string;
@@ -32,6 +34,8 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
   const renderedAnnotationsRef = useRef<RenderedAnnotation[]>([]);
   const locationDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastWheelTurnRef = useRef(0);
+  const preferenceRef = useRef(loadEpubReadingPreference(documentId));
+  const baseFontSizeRef = useRef<number | null>(null);
   const wheelDocumentsRef = useRef<Set<Document>>(new Set());
   const linkDocumentsRef = useRef<Set<Document>>(new Set());
   const { currentDocument, currentPage, setCurrentPage, setTotalPages, loadToc, tocNodes, setActiveTocNodeId } = useDocumentStore();
@@ -39,13 +43,12 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
   const loadAnnotations = useNotesStore((s) => s.loadAnnotations);
   const theme = useSettingsStore((s) => s.theme);
   const toggleTheme = useSettingsStore((s) => s.toggleTheme);
-  const defaultEpubFontSize = useSettingsStore((s) => s.defaultEpubFontSize);
   const { addToast } = useToast();
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [fontSize, setFontSize] = useState(() => currentDocument?.last_zoom === null
-    ? defaultEpubFontSize
-    : Math.round((currentDocument?.last_zoom ?? 1) * 100));
+  const [fontMode, setFontMode] = useState<EpubFontMode>(() => preferenceRef.current.fontMode);
+  const [flow, setFlow] = useState<EpubFlow>(() => preferenceRef.current.flow);
+  const [fontSize, setFontSize] = useState(() => preferenceRef.current.fontMode === "manual" ? Math.round((currentDocument?.last_zoom ?? 1) * 100) : 100);
   const [spineCount, setSpineCount] = useState(currentDocument?.page_count || 1);
   const [location, setLocation] = useState<EpubLocationSnapshot | null>(null);
   const [frameSize, setFrameSize] = useState({ width: 0, height: 0 });
@@ -67,6 +70,7 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
 
   const inkAnnotations = useMemo(
     () => annotations.filter((annotation) => {
+      if (flow !== "paginated") return false;
       if (annotation.type !== "ink") return false;
       const anchor = parseInkAnchor(annotation.anchor_json);
       if (!anchor || anchor.space !== "epub-rendition") return false;
@@ -74,7 +78,7 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
       if (typeof anchor.spineIndex === "number" && typeof location?.spineIndex === "number") return anchor.spineIndex === location.spineIndex;
       return Boolean(anchor.href && anchor.href === location?.href);
     }),
-    [annotations, inkRefreshKey, location?.cfi, location?.href, location?.spineIndex],
+    [annotations, flow, inkRefreshKey, location?.cfi, location?.href, location?.spineIndex],
   );
 
   const clearSelection = useCallback(() => {
@@ -101,23 +105,24 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
   const applyTheme = useCallback(() => {
     const rendition = renditionRef.current;
     if (!rendition) return;
-    const root = getComputedStyle(document.documentElement);
-    const rules = {
-      body: {
-        color: root.getPropertyValue("--text-primary").trim() || (theme === "dark" ? "#f8fafc" : "#111827"),
-        background: root.getPropertyValue("--reader-bg").trim() || (theme === "dark" ? "#111827" : "#ffffff"),
-      },
-      "a, a:visited": {
-        color: root.getPropertyValue("--accent-color").trim() || "#2563eb",
-      },
-      "::selection": {
-        background: "rgba(37, 99, 235, 0.28)",
-      },
-    };
-    rendition.themes.register("rustybooks", rules);
-    rendition.themes.select("rustybooks");
-    rendition.themes.fontSize(`${fontSize}%`);
-  }, [fontSize, theme]);
+    const themes = rendition.themes as typeof rendition.themes & { removeOverride(name: string): void };
+    themes.register("rustybooks", EPUB_THEME_RULES);
+    themes.select("rustybooks");
+    if (fontSize === 100) themes.removeOverride("font-size");
+    else themes.fontSize(`${fontSize}%`);
+  }, [fontSize]);
+
+  const recalculateAutoFont = useCallback(() => {
+    if (preferenceRef.current.fontMode !== "auto") return;
+    const contentsList = (renditionRef.current?.getContents?.() ?? []) as Contents | Contents[];
+    const contents = (Array.isArray(contentsList) ? contentsList : [contentsList])[0];
+    const root = contents?.document.body ?? contents?.document.documentElement;
+    if (!root) return;
+    const computed = Number.parseFloat(contents.window.getComputedStyle(root).fontSize);
+    const base = computed / (fontSize / 100);
+    if (Number.isFinite(base) && base > 0) baseFontSizeRef.current = base;
+    if (baseFontSizeRef.current) setFontSize(autoFontPercentage(baseFontSizeRef.current));
+  }, [fontSize]);
 
   const renderStoredAnnotations = useCallback(() => {
     const rendition = renditionRef.current;
@@ -147,7 +152,48 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
         renderedAnnotationsRef.current.push({ cfi: anchor.cfiRange, type: "highlight" });
       }
     }
-  }, [annotations, theme]);
+
+    const contentsList = (rendition.getContents?.() ?? []) as Contents | Contents[];
+    for (const contents of Array.isArray(contentsList) ? contentsList : [contentsList]) {
+      contents.document.getElementById("rustybooks-epub-ink")?.remove();
+      const svg = contents.document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      svg.id = "rustybooks-epub-ink";
+      svg.setAttribute("style", "position:absolute;inset:0;width:100%;height:100%;overflow:visible;pointer-events:none;z-index:2147483646");
+      const font = Number.parseFloat(contents.window.getComputedStyle(contents.document.body ?? contents.document.documentElement).fontSize) || 16;
+      for (const annotation of annotations) {
+        const anchor = parseInkAnchor(annotation.anchor_json);
+        if (!anchor || anchor.version !== 2 || (anchor.href && anchor.href !== location?.href)) continue;
+        let rect: DOMRect;
+        try { rect = contents.range(anchor.cfi).getBoundingClientRect(); } catch { continue; }
+        const points = projectEpubInk(anchor, { x: rect.left + contents.window.scrollX, y: rect.top + contents.window.scrollY }, font);
+        const path = contents.document.createElementNS("http://www.w3.org/2000/svg", "polyline");
+        path.setAttribute("points", points.map((point) => `${point.x},${point.y}`).join(" "));
+        path.setAttribute("fill", "none");
+        path.setAttribute("stroke", annotation.color || "#111827");
+        path.setAttribute("stroke-width", String(anchor.width * font));
+        path.setAttribute("stroke-linecap", "round");
+        path.setAttribute("stroke-linejoin", "round");
+        svg.append(path);
+      }
+      contents.document.body?.append(svg);
+    }
+  }, [annotations, location?.href, theme]);
+
+  const makeEpubInkAnchor = useCallback((points: InkPoint[], width: number): InkAnchor | null => {
+    const contentsList = (renditionRef.current?.getContents?.() ?? []) as Contents | Contents[];
+    const contents = (Array.isArray(contentsList) ? contentsList : [contentsList])[0];
+    if (!contents || !location?.cfi) return null;
+    let rect: DOMRect;
+    try { rect = contents.range(location.cfi).getBoundingClientRect(); } catch { return null; }
+    const frameRect = (contents.window.frameElement as HTMLElement | null)?.getBoundingClientRect();
+    const hostRect = frameRef.current?.getBoundingClientRect();
+    if (!frameRect || !hostRect) return null;
+    const font = Number.parseFloat(contents.window.getComputedStyle(contents.document.body ?? contents.document.documentElement).fontSize) || 16;
+    const origin = { x: frameRect.left - hostRect.left + rect.left, y: frameRect.top - hostRect.top + rect.top };
+    const local = simplifyLocalPoints(points).map((point) => ({ x: (point.x - origin.x) / font, y: (point.y - origin.y) / font }));
+    if (local.length < 2) return null;
+    return { version: 2, space: "epub-content", cfi: location.cfi, href: location.href, spineIndex: location.spineIndex, fontSize: font, points: local, width: width / font } satisfies EpubInkAnchor;
+  }, [location]);
 
   const handleSelected = useCallback((cfiRange: string, contents: Contents) => {
     const selection = contents.window.getSelection();
@@ -182,6 +228,7 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
   }, [clearSelection]);
 
   const handlePageWheel = useCallback((event: WheelEvent) => {
+    if (preferenceRef.current.flow === "scrolled-continuous") return;
     if (event.ctrlKey || event.metaKey) return;
     if (Math.abs(event.deltaY) < Math.max(35, Math.abs(event.deltaX))) return;
 
@@ -248,19 +295,15 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
       try {
         loadToc(documentId).catch(() => {});
         loadAnnotations(documentId).catch(() => {});
-        if (currentDocument?.parse_status !== "ready") {
-          invoke("extract_epub_content", { documentId, filePath: currentDocument?.file_path ?? "" }).catch(() => {});
-        }
-
         const raw = await invoke<ArrayBuffer>("read_document_bytes", { documentId });
         if (dead) return;
         const bytes = new Uint8Array(raw);
         const arrayBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
-        const book = ePub(arrayBuffer, { replacements: "blob" });
+        const book = ePub(arrayBuffer, EPUB_BOOK_OPTIONS);
         const rendition = book.renderTo(frameRef.current!, {
           width: "100%",
           height: "100%",
-          flow: "paginated",
+          flow: preferenceRef.current.flow,
           spread: "none",
           allowScriptedContent: false,
         });
@@ -274,6 +317,7 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
         });
         rendition.on("rendered", () => {
           applyTheme();
+          requestAnimationFrame(recalculateAutoFont);
           renderStoredAnnotations();
           attachWheelListeners();
           attachLinkListeners();
@@ -287,7 +331,6 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
           setTotalPages(Math.max(1, count));
           invoke("update_page_count", { documentId, pageCount: Math.max(1, count) }).catch(() => {});
         }
-        await book.locations.generate(1600).catch(() => null);
         applyTheme();
         const savedCfi = localStorage.getItem(epubCfiKey(documentId));
         const fallbackSection = percentToChapter(currentDocument?.last_page ?? 0, Math.max(1, count)) - 1;
@@ -296,7 +339,10 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
         } else {
           await rendition.display(Math.max(0, fallbackSection));
         }
-        if (!dead) setLoading(false);
+        if (!dead) {
+          setLoading(false);
+          void book.locations.generate(1600).catch(() => null);
+        }
       } catch (err) {
         if (!dead) {
           setError(`Failed to load EPUB: ${err}`);
@@ -335,12 +381,45 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
   useEffect(() => {
     const element = frameRef.current;
     if (!element) return;
-    const update = () => setFrameSize({ width: element.clientWidth, height: element.clientHeight });
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const update = () => {
+      setFrameSize({ width: element.clientWidth, height: element.clientHeight });
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(recalculateAutoFont, 150);
+    };
     update();
     const observer = new ResizeObserver(update);
     observer.observe(element);
-    return () => observer.disconnect();
+    return () => { observer.disconnect(); if (timer) clearTimeout(timer); };
+  }, [recalculateAutoFont]);
+
+  useEffect(() => {
+    preferenceRef.current = { flow, fontMode };
+    localStorage.setItem(epubReadingPreferenceKey(documentId), JSON.stringify(preferenceRef.current));
+  }, [documentId, flow, fontMode]);
+
+  const changeFlow = useCallback(async (next: EpubFlow) => {
+    const rendition = renditionRef.current;
+    if (!rendition || next === preferenceRef.current.flow) return;
+    const cfi = location?.cfi ?? localStorage.getItem(epubCfiKey(documentId)) ?? undefined;
+    preferenceRef.current = { ...preferenceRef.current, flow: next };
+    setFlow(next);
+    removeWheelListeners();
+    rendition.flow(next);
+    await rendition.display(cfi).catch(() => rendition.display());
+  }, [documentId, location?.cfi, removeWheelListeners]);
+
+  const adjustFont = useCallback((delta: number) => {
+    setFontMode("manual");
+    preferenceRef.current = { ...preferenceRef.current, fontMode: "manual" };
+    setFontSize((size) => Math.max(50, Math.min(200, size + delta)));
   }, []);
+
+  const resetAutoFont = useCallback(() => {
+    setFontMode("auto");
+    preferenceRef.current = { ...preferenceRef.current, fontMode: "auto" };
+    recalculateAutoFont();
+  }, [recalculateAutoFont]);
 
   useEffect(() => {
     let best: typeof tocNodes[0] | null = null;
@@ -374,9 +453,9 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
       }
       if (e.key === "ArrowLeft" || e.key === "PageUp") { e.preventDefault(); goPrevious(); }
       if (e.key === "ArrowRight" || e.key === "PageDown" || e.key === " ") { e.preventDefault(); goNext(); }
-      if (e.key === "+" || e.key === "=") { e.preventDefault(); setFontSize((s) => Math.min(200, s + 10)); }
-      if (e.key === "-") { e.preventDefault(); setFontSize((s) => Math.max(50, s - 10)); }
-      if (e.key === "0") { e.preventDefault(); setFontSize(100); }
+      if (e.key === "+" || e.key === "=") { e.preventDefault(); adjustFont(10); }
+      if (e.key === "-") { e.preventDefault(); adjustFont(-10); }
+      if (e.key === "0") { e.preventDefault(); resetAutoFont(); }
       if ((e.key === "e" || e.key === "E") && selectionText) {
         e.preventDefault();
         onOpenAi?.(draftFromSelection(selectionText));
@@ -385,7 +464,7 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [clearSelection, goNext, goPrevious, onOpenAi, selectionText, toggleTheme]);
+  }, [adjustFont, clearSelection, goNext, goPrevious, onOpenAi, resetAutoFont, selectionText, toggleTheme]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -415,15 +494,18 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
           <Icon name={theme === "light" ? "moon" : "sun"} />
         </button>
         <InkToolbarControls value={inkToolState} onChange={setInkToolState} />
+        <button className="toolbar-text-button" onClick={() => void changeFlow(flow === "paginated" ? "scrolled-continuous" : "paginated")} aria-label="Toggle EPUB flow">
+          {flow === "paginated" ? "Paginated" : "Continuous"}
+        </button>
         <span className="toolbar-center">
           <button className="toolbar-text-button" onClick={onOpenContents} aria-label="Open contents"><Icon name="contents" />Contents</button>
           <button className="toolbar-text-button" onClick={onOpenLibrary} aria-label="Open books"><Icon name="books" />Books</button>
           <button className="toolbar-text-button" onClick={() => onOpenAi?.()} aria-label="Open AI assistant"><Icon name="ask" />Ask</button>
         </span>
         <span className="toolbar-spacer" />
-        <button className="icon-button" onClick={() => setFontSize((s) => Math.max(50, s - 10))} disabled={fontSize <= 50} aria-label="Zoom out"><Icon name="minus" /></button>
-        <button className="zoom-reset" onClick={() => setFontSize(100)} aria-label="Reset text size">{fontSize}%</button>
-        <button className="icon-button" onClick={() => setFontSize((s) => Math.min(200, s + 10))} disabled={fontSize >= 200} aria-label="Zoom in"><Icon name="plus" /></button>
+        <button className="icon-button" onClick={() => adjustFont(-10)} disabled={fontSize <= 50} aria-label="Decrease text size"><Icon name="minus" /></button>
+        <button className="zoom-reset" onClick={resetAutoFont} aria-label="Use automatic text size">{fontMode === "auto" ? "Auto" : `${fontSize}%`}</button>
+        <button className="icon-button" onClick={() => adjustFont(10)} disabled={fontSize >= 200} aria-label="Increase text size"><Icon name="plus" /></button>
       </div>
 
       {error ? (
@@ -447,12 +529,13 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
                 href={location?.href}
                 cfi={location?.cfi}
                 visibleCfi={location?.cfi}
+                makeAnchor={makeEpubInkAnchor}
                 onChanged={() => setInkRefreshKey((key) => key + 1)}
               />
             </div>
           </div>
-          <button className="epub-page-turn epub-page-turn-prev" onClick={goPrevious} disabled={atStart || loading} aria-label="Previous page"><Icon name="prev" /></button>
-          <button className="epub-page-turn epub-page-turn-next" onClick={goNext} disabled={atEnd || loading} aria-label="Next page"><Icon name="next" /></button>
+          {flow === "paginated" && <button className="epub-page-turn epub-page-turn-prev" onClick={goPrevious} disabled={atStart || loading} aria-label="Previous page"><Icon name="prev" /></button>}
+          {flow === "paginated" && <button className="epub-page-turn epub-page-turn-next" onClick={goNext} disabled={atEnd || loading} aria-label="Next page"><Icon name="next" /></button>}
         </div>
       )}
 

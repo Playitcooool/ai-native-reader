@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   denormalizePoint,
   normalizePoint,
+  parseInkAnchor,
+  projectEpubInk,
   strokeInsideLasso,
   type InkAnchor,
 } from "../src/features/ink/inkGeometry";
@@ -56,6 +58,14 @@ describe("inkGeometry", () => {
     };
 
     expect(strokeInsideLasso(stroke, [{ x: 50, y: 25 }, { x: 150, y: 75 }], { width: 200, height: 100 })).toBe(false);
+  });
+
+  it("parses and scales reflow-stable EPUB ink", () => {
+    const anchor = parseInkAnchor(JSON.stringify({ version: 2, space: "epub-content", cfi: "epubcfi(/6/2!/4/2)", href: "a.xhtml", fontSize: 10, width: 2, points: [{ x: 1, y: 2 }, { x: 3, y: 4 }] }));
+    expect(anchor?.version).toBe(2);
+    if (!anchor || anchor.version !== 2) throw new Error("invalid anchor");
+    expect(projectEpubInk(anchor, { x: 5, y: 7 }, 20)).toEqual([{ x: 25, y: 47 }, { x: 65, y: 87 }]);
+    expect(parseInkAnchor(JSON.stringify({ ...anchor, version: 1, space: "epub-rendition" }))?.version).toBe(1);
   });
 });
 

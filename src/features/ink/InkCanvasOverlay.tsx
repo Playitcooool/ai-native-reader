@@ -29,6 +29,7 @@ interface InkCanvasOverlayProps {
   visibleCfi?: string;
   spineIndex?: number;
   onChanged?: () => void;
+  makeAnchor?: (points: InkPoint[], width: number) => InkAnchor | null;
 }
 
 interface InkAnnotation {
@@ -51,6 +52,7 @@ export default function InkCanvasOverlay({
   visibleCfi,
   spineIndex,
   onChanged,
+  makeAnchor,
 }: InkCanvasOverlayProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [draft, setDraft] = useState<InkPoint[]>([]);
@@ -127,7 +129,7 @@ export default function InkCanvasOverlay({
   const commitPen = async (points: InkPoint[]) => {
     const normalized = simplifyLocalPoints(points).map((p) => normalizePoint(p, size));
     if (normalized.length < 2) return;
-    const anchor: InkAnchor = {
+    const anchor: InkAnchor = makeAnchor?.(points, toolState.penWidth) ?? {
       version: 1,
       space,
       points: normalized,

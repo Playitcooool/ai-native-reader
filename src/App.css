@@ -1583,15 +1583,14 @@
   flex: 1;
   min-height: 0;
   overflow: hidden;
-  background: var(--reader-bg);
-  padding: 18px clamp(12px, 4vw, 52px);
+  background: transparent;
 }
 
 .epub-rendition-host {
-  width: min(100%, 980px);
+  width: 100%;
   height: 100%;
-  margin: 0 auto;
-  background: color-mix(in srgb, var(--reader-bg) 92%, var(--bg-primary) 8%);
+  margin: 0;
+  background: transparent;
 }
 
 .epub-rendition-host iframe {
@@ -1601,13 +1600,11 @@
 
 .epub-ink-layer {
   position: absolute;
-  top: 18px;
-  left: 50%;
+  inset: 0;
   z-index: 5;
-  width: min(calc(100% - clamp(12px, 4vw, 52px) * 2), 980px);
-  height: calc(100% - 36px);
+  width: 100%;
+  height: 100%;
   pointer-events: none;
-  transform: translateX(-50%);
 }
 
 .epub-ink-page {
