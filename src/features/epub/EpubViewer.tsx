@@ -325,7 +325,9 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
           savedCfi,
           Math.max(0, fallbackSection),
         );
-        if (savedCfi && !restoredSavedCfi) localStorage.removeItem(epubCfiKey(documentId));
+        if (savedCfi && !restoredSavedCfi && localStorage.getItem(epubCfiKey(documentId)) === savedCfi) {
+          localStorage.removeItem(epubCfiKey(documentId));
+        }
         if (!dead) {
           setLoading(false);
           void book.locations.generate(1600).catch(() => null);
