@@ -255,6 +255,7 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
     for (const contents of Array.isArray(contentsList) ? contentsList : [contentsList]) {
       const doc = contents.document;
       if (linkDocumentsRef.current.has(doc)) continue;
+      (contents.window.frameElement as HTMLElement | null)?.setAttribute("title", "EPUB book content");
       doc.addEventListener("click", handleLinkClick, true);
       doc.addEventListener("wheel", handleWheel, { passive: false });
       linkDocumentsRef.current.add(doc);
@@ -459,7 +460,7 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
         <button className="toolbar-text-button toolbar-home" onClick={onBackHome} aria-label="Back to library"><Icon name="home" />Library</button>
         <span className="toolbar-divider" />
         <button className="icon-button" onClick={goLeft} disabled={(readingDirection === "rtl" ? atEnd : atStart) || loading || turning} aria-label={readingDirection === "rtl" ? "Next page" : "Previous page"}><Icon name="prev" /></button>
-        <span className="page-control" aria-live="polite"><span>{loading ? "Loading" : `${progress}% - ${currentSpineIndex + 1}/${spineCount}`}</span></span>
+        <span className="page-control" role="status" aria-live="polite"><span>{loading ? "Loading" : `${progress}% · Section ${currentSpineIndex + 1} of ${spineCount}`}</span></span>
         <button className="icon-button" onClick={goRight} disabled={(readingDirection === "rtl" ? atStart : atEnd) || loading || turning} aria-label={readingDirection === "rtl" ? "Previous page" : "Next page"}><Icon name="next" /></button>
         <button className="icon-button" onClick={toggleTheme} title="Switch theme (Cmd+Shift+T)" aria-label="Toggle theme">
           <Icon name={theme === "light" ? "moon" : "sun"} />
