@@ -16,6 +16,7 @@ import { percentToChapter } from "./epubProgress";
 import { epubCfiKey, parseEpubCfiAnchor, snapshotFromLocation, type EpubCfiAnchor, type EpubLocationSnapshot } from "./epubAnchors";
 import { EPUB_BOOK_OPTIONS, EPUB_THEME_RULES } from "./epubViewerConfig";
 import { autoFontPercentage, epubReadingPreferenceKey, loadEpubReadingPreference, type EpubFontMode } from "./epubReadingPreferences";
+import { displayEpubStart } from "./epubDisplay";
 
 interface EpubViewerProps {
   documentId: string;
@@ -295,9 +296,12 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
         applyTheme();
         const savedCfi = localStorage.getItem(epubCfiKey(documentId));
         const fallbackSection = percentToChapter(currentDocument?.last_page ?? 0, Math.max(1, count)) - 1;
-        await (savedCfi
-          ? rendition.display(savedCfi)
-          : rendition.display(Math.max(0, fallbackSection)));
+        const restoredSavedCfi = await displayEpubStart(
+          (target) => typeof target === "string" ? rendition.display(target) : rendition.display(target),
+          savedCfi,
+          Math.max(0, fallbackSection),
+        );
+        if (savedCfi && !restoredSavedCfi) localStorage.removeItem(epubCfiKey(documentId));
         if (!dead) {
           setLoading(false);
           void book.locations.generate(1600).catch(() => null);
