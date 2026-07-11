@@ -17,6 +17,7 @@ import { epubCfiKey, parseEpubCfiAnchor, snapshotFromLocation, type EpubCfiAncho
 import { EPUB_BOOK_OPTIONS, EPUB_REFLOW_RULES, EPUB_THEME_RULES } from "./epubViewerConfig";
 import { autoFontPercentage, epubReadingPreferenceKey, loadEpubReadingPreference, type EpubFontMode } from "./epubReadingPreferences";
 import { displayEpubStart } from "./epubDisplay";
+import { epubTurnForKey, type EpubTurn } from "./epubNavigation";
 
 interface EpubViewerProps {
   documentId: string;
@@ -34,6 +35,8 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
   const renditionRef = useRef<Rendition | null>(null);
   const renderedAnnotationsRef = useRef<RenderedAnnotation[]>([]);
   const locationDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const turningRef = useRef(false);
+  const keyHandlerRef = useRef<(event: KeyboardEvent) => void>(() => {});
   const preferenceRef = useRef(loadEpubReadingPreference(documentId));
   const baseFontSizeRef = useRef<number | null>(null);
   const fixedLayoutRef = useRef(false);
@@ -46,6 +49,8 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
   const { addToast } = useToast();
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [turning, setTurning] = useState(false);
+  const [readingDirection, setReadingDirection] = useState<"ltr" | "rtl">("ltr");
   const [fontMode, setFontMode] = useState<EpubFontMode>(() => preferenceRef.current.fontMode);
   const [fontSize, setFontSize] = useState(() => preferenceRef.current.fontMode === "manual" ? Math.round((currentDocument?.last_zoom ?? 1) * 100) : 100);
   const [spineCount, setSpineCount] = useState(currentDocument?.page_count || 1);
@@ -215,15 +220,24 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
       : { x: rect.left + rect.width / 2, y: rect.top });
   }, [location?.href, location?.spineIndex]);
 
-  const goPrevious = useCallback(() => {
+  const turnPage = useCallback((direction: EpubTurn) => {
+    const rendition = renditionRef.current;
+    if (!rendition || turningRef.current) return;
     clearSelection();
-    renditionRef.current?.prev().catch(() => {});
+    turningRef.current = true;
+    setTurning(true);
+    Promise.resolve().then(() => direction === "previous" ? rendition.prev() : rendition.next())
+      .catch(() => {})
+      .finally(() => {
+        turningRef.current = false;
+        setTurning(false);
+      });
   }, [clearSelection]);
 
-  const goNext = useCallback(() => {
-    clearSelection();
-    renditionRef.current?.next().catch(() => {});
-  }, [clearSelection]);
+  const goPrevious = useCallback(() => turnPage("previous"), [turnPage]);
+  const goNext = useCallback(() => turnPage("next"), [turnPage]);
+  const goLeft = readingDirection === "rtl" ? goNext : goPrevious;
+  const goRight = readingDirection === "rtl" ? goPrevious : goNext;
 
   const handleLinkClick = useCallback((event: MouseEvent) => {
     const target = event.target as Element | null;
@@ -279,6 +293,7 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
         renditionRef.current = rendition;
 
         rendition.on("selected", handleSelected);
+        rendition.on("keydown", (event: KeyboardEvent) => keyHandlerRef.current(event));
         rendition.on("relocated", (loc: unknown) => {
           const snapshot = snapshotFromLocation(loc);
           if (snapshot) persistLocation(snapshot);
@@ -291,6 +306,7 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
         });
 
         await book.ready;
+        setReadingDirection((book.packaging.metadata as { direction?: string }).direction === "rtl" ? "rtl" : "ltr");
         fixedLayoutRef.current = book.packaging.metadata.layout === "pre-paginated"
           || (book as Book & { displayOptions?: { fixedLayout?: string } }).displayOptions?.fixedLayout === "true";
         let count = 0;
@@ -391,19 +407,21 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return;
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === "t" || e.key === "T")) {
         e.preventDefault();
         toggleTheme();
         return;
       }
       if (e.metaKey || e.ctrlKey) return;
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      const target = e.target as { closest?: (selector: string) => Element | null } | null;
+      if (target?.closest?.("input, textarea, select, button, a, [contenteditable]")) return;
       if (e.key === "Escape") {
         clearSelection();
         setInkToolState((state) => ({ ...state, activeTool: "none" }));
       }
-      if (e.key === "ArrowLeft" || e.key === "PageUp") { e.preventDefault(); goPrevious(); }
-      if (e.key === "ArrowRight" || e.key === "PageDown" || e.key === " ") { e.preventDefault(); goNext(); }
+      const turn = epubTurnForKey(e.key, readingDirection);
+      if (turn) { e.preventDefault(); turnPage(turn); }
       if (e.key === "+" || e.key === "=") { e.preventDefault(); adjustFont(10); }
       if (e.key === "-") { e.preventDefault(); adjustFont(-10); }
       if (e.key === "0") { e.preventDefault(); resetAutoFont(); }
@@ -413,9 +431,10 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
         clearSelection();
       }
     };
+    keyHandlerRef.current = handleKey;
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [adjustFont, clearSelection, goNext, goPrevious, onOpenAi, resetAutoFont, selectionText, toggleTheme]);
+  }, [adjustFont, clearSelection, onOpenAi, readingDirection, resetAutoFont, selectionText, toggleTheme, turnPage]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -438,9 +457,9 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
       <div className="reader-toolbar">
         <button className="toolbar-text-button toolbar-home" onClick={onBackHome} aria-label="Back to library"><Icon name="home" />Library</button>
         <span className="toolbar-divider" />
-        <button className="icon-button" onClick={goPrevious} disabled={atStart || loading} aria-label="Previous page"><Icon name="prev" /></button>
-        <span className="page-control"><span>{loading ? "Loading" : `${progress}% - ${currentSpineIndex + 1}/${spineCount}`}</span></span>
-        <button className="icon-button" onClick={goNext} disabled={atEnd || loading} aria-label="Next page"><Icon name="next" /></button>
+        <button className="icon-button" onClick={goLeft} disabled={(readingDirection === "rtl" ? atEnd : atStart) || loading || turning} aria-label={readingDirection === "rtl" ? "Next page" : "Previous page"}><Icon name="prev" /></button>
+        <span className="page-control" aria-live="polite"><span>{loading ? "Loading" : `${progress}% - ${currentSpineIndex + 1}/${spineCount}`}</span></span>
+        <button className="icon-button" onClick={goRight} disabled={(readingDirection === "rtl" ? atStart : atEnd) || loading || turning} aria-label={readingDirection === "rtl" ? "Previous page" : "Next page"}><Icon name="next" /></button>
         <button className="icon-button" onClick={toggleTheme} title="Switch theme (Cmd+Shift+T)" aria-label="Toggle theme">
           <Icon name={theme === "light" ? "moon" : "sun"} />
         </button>
@@ -482,8 +501,8 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
               />
             </div>
           </div>
-          <button className="epub-page-turn epub-page-turn-prev" onClick={goPrevious} disabled={atStart || loading} aria-label="Previous page"><Icon name="prev" /></button>
-          <button className="epub-page-turn epub-page-turn-next" onClick={goNext} disabled={atEnd || loading} aria-label="Next page"><Icon name="next" /></button>
+          <button className="epub-page-turn epub-page-turn-prev" onClick={goLeft} disabled={(readingDirection === "rtl" ? atEnd : atStart) || loading || turning} aria-label={readingDirection === "rtl" ? "Next page" : "Previous page"}><Icon name="prev" /></button>
+          <button className="epub-page-turn epub-page-turn-next" onClick={goRight} disabled={(readingDirection === "rtl" ? atStart : atEnd) || loading || turning} aria-label={readingDirection === "rtl" ? "Previous page" : "Next page"}><Icon name="next" /></button>
         </div>
       )}
 
