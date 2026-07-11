@@ -14,7 +14,7 @@ import { draftFromSelection } from "../ai/aiPanelHelpers";
 import { isAllowedExternalUrl, openExternalUrl } from "../links/externalLinks";
 import { percentToChapter } from "./epubProgress";
 import { epubCfiKey, parseEpubCfiAnchor, snapshotFromLocation, type EpubCfiAnchor, type EpubLocationSnapshot } from "./epubAnchors";
-import { EPUB_BOOK_OPTIONS, EPUB_THEME_RULES } from "./epubViewerConfig";
+import { EPUB_BOOK_OPTIONS, EPUB_REFLOW_RULES, EPUB_THEME_RULES } from "./epubViewerConfig";
 import { autoFontPercentage, epubReadingPreferenceKey, loadEpubReadingPreference, type EpubFontMode } from "./epubReadingPreferences";
 import { displayEpubStart } from "./epubDisplay";
 
@@ -36,6 +36,7 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
   const locationDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const preferenceRef = useRef(loadEpubReadingPreference(documentId));
   const baseFontSizeRef = useRef<number | null>(null);
+  const fixedLayoutRef = useRef(false);
   const linkDocumentsRef = useRef<Set<Document>>(new Set());
   const { currentDocument, currentPage, setCurrentPage, setTotalPages, loadToc, tocNodes, setActiveTocNodeId } = useDocumentStore();
   const annotations = useNotesStore((s) => s.annotations);
@@ -103,7 +104,7 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
     const rendition = renditionRef.current;
     if (!rendition) return;
     const themes = rendition.themes as typeof rendition.themes & { removeOverride(name: string): void };
-    themes.register("rustybooks", EPUB_THEME_RULES);
+    themes.register("rustybooks", fixedLayoutRef.current ? EPUB_THEME_RULES : { ...EPUB_THEME_RULES, ...EPUB_REFLOW_RULES });
     themes.select("rustybooks");
     if (fontSize === 100) themes.removeOverride("font-size");
     else themes.fontSize(`${fontSize}%`);
@@ -233,22 +234,26 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
     openExternalUrl(anchor.href).catch(() => addToast({ type: "error", message: "Could not open link." }));
   }, [addToast]);
 
+  const handleWheel = useCallback((event: WheelEvent) => event.preventDefault(), []);
+
   const attachLinkListeners = useCallback(() => {
     const contentsList = (renditionRef.current?.getContents?.() ?? []) as Contents | Contents[];
     for (const contents of Array.isArray(contentsList) ? contentsList : [contentsList]) {
       const doc = contents.document;
       if (linkDocumentsRef.current.has(doc)) continue;
       doc.addEventListener("click", handleLinkClick, true);
+      doc.addEventListener("wheel", handleWheel, { passive: false });
       linkDocumentsRef.current.add(doc);
     }
-  }, [handleLinkClick]);
+  }, [handleLinkClick, handleWheel]);
 
   const removeLinkListeners = useCallback(() => {
     for (const doc of linkDocumentsRef.current) {
       doc.removeEventListener("click", handleLinkClick, true);
+      doc.removeEventListener("wheel", handleWheel);
     }
     linkDocumentsRef.current.clear();
-  }, [handleLinkClick]);
+  }, [handleLinkClick, handleWheel]);
 
   useEffect(() => {
     let dead = false;
@@ -286,6 +291,8 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
         });
 
         await book.ready;
+        fixedLayoutRef.current = book.packaging.metadata.layout === "pre-paginated"
+          || (book as Book & { displayOptions?: { fixedLayout?: string } }).displayOptions?.fixedLayout === "true";
         let count = 0;
         book.spine.each(() => { count++; });
         if (!dead) {
@@ -452,7 +459,7 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
       {error ? (
         <div style={{ padding: 24, textAlign: "center" }}><p style={{ color: "var(--danger-color)" }}>{error}</p></div>
       ) : (
-        <div className="epub-reader-frame">
+        <div className="epub-reader-frame" onWheel={(event) => event.preventDefault()}>
           <div ref={frameRef} className="epub-rendition-host" />
           {loading && <div className="epub-loading">Loading EPUB...</div>}
           <div className="epub-ink-layer">
