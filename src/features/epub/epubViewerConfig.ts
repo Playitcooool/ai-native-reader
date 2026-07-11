@@ -11,3 +11,7 @@ export const EPUB_REFLOW_RULES = {
   "pre, code": { "white-space": "pre-wrap", "overflow-wrap": "anywhere" },
   "video, canvas": { "max-width": "100% !important", "max-height": "100% !important", "object-fit": "contain" },
 } as const;
+
+export function epubThemeRules(fixedLayout: boolean) {
+  return fixedLayout ? EPUB_THEME_RULES : { ...EPUB_THEME_RULES, ...EPUB_REFLOW_RULES };
+}

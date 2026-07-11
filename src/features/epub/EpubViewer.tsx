@@ -14,7 +14,7 @@ import { draftFromSelection } from "../ai/aiPanelHelpers";
 import { isAllowedExternalUrl, openExternalUrl } from "../links/externalLinks";
 import { percentToChapter } from "./epubProgress";
 import { epubCfiKey, parseEpubCfiAnchor, snapshotFromLocation, type EpubCfiAnchor, type EpubLocationSnapshot } from "./epubAnchors";
-import { EPUB_BOOK_OPTIONS, EPUB_REFLOW_RULES, EPUB_THEME_RULES } from "./epubViewerConfig";
+import { EPUB_BOOK_OPTIONS, epubThemeRules } from "./epubViewerConfig";
 import { autoFontPercentage, epubReadingPreferenceKey, loadEpubReadingPreference, type EpubFontMode } from "./epubReadingPreferences";
 import { displayEpubStart } from "./epubDisplay";
 import { epubTurnForKey, type EpubTurn } from "./epubNavigation";
@@ -109,7 +109,7 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
     const rendition = renditionRef.current;
     if (!rendition) return;
     const themes = rendition.themes as typeof rendition.themes & { removeOverride(name: string): void };
-    themes.register("rustybooks", fixedLayoutRef.current ? EPUB_THEME_RULES : { ...EPUB_THEME_RULES, ...EPUB_REFLOW_RULES });
+    themes.register("rustybooks", epubThemeRules(fixedLayoutRef.current));
     themes.select("rustybooks");
     if (fontSize === 100) themes.removeOverride("font-size");
     else themes.fontSize(`${fontSize}%`);

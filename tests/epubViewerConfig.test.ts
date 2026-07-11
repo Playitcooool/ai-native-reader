@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { EPUB_BOOK_OPTIONS, EPUB_REFLOW_RULES, EPUB_THEME_RULES } from "../src/features/epub/epubViewerConfig";
+import { EPUB_BOOK_OPTIONS, EPUB_REFLOW_RULES, EPUB_THEME_RULES, epubThemeRules } from "../src/features/epub/epubViewerConfig";
 import tauriConfig from "../src-tauri/tauri.conf.json";
 
 describe("EPUB viewer configuration", () => {
@@ -13,5 +13,10 @@ describe("EPUB viewer configuration", () => {
     expect(EPUB_THEME_RULES["html, body"].overflow).toContain("hidden");
     expect(EPUB_REFLOW_RULES.table["table-layout"]).toBe("fixed");
     expect(EPUB_REFLOW_RULES["pre, code"]["white-space"]).toBe("pre-wrap");
+  });
+
+  it("does not rewrite fixed-layout page geometry", () => {
+    expect(epubThemeRules(true)).toBe(EPUB_THEME_RULES);
+    expect(epubThemeRules(false)).toHaveProperty("table");
   });
 });
