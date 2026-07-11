@@ -9,8 +9,8 @@ describe("EPUB viewer configuration", () => {
     expect(tauriConfig.app.security.csp).toContain("style-src 'self' 'unsafe-inline' blob:");
   });
 
-  it("clips viewport scrolling and wraps intrinsically wide content", () => {
-    expect(EPUB_THEME_RULES["html, body"].overflow).toContain("hidden");
+  it("leaves pagination overflow to epub.js and wraps intrinsically wide content", () => {
+    expect(EPUB_THEME_RULES).not.toHaveProperty("html, body");
     expect(EPUB_REFLOW_RULES.table["table-layout"]).toBe("fixed");
     expect(EPUB_REFLOW_RULES["pre, code"]["white-space"]).toBe("pre-wrap");
   });
