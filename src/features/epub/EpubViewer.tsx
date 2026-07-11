@@ -265,7 +265,7 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
         const rendition = book.renderTo(frameRef.current!, {
           width: "100%",
           height: "100%",
-          flow: "scrolled-continuous",
+          flow: "paginated",
           spread: "none",
           allowScriptedContent: false,
         });
