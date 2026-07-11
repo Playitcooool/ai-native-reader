@@ -353,8 +353,9 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
   useEffect(() => { applyTheme(); }, [applyTheme]);
 
   useEffect(() => {
-    renderStoredAnnotations();
-  }, [renderStoredAnnotations]);
+    const frame = requestAnimationFrame(renderStoredAnnotations);
+    return () => cancelAnimationFrame(frame);
+  }, [fontSize, frameSize.height, frameSize.width, renderStoredAnnotations]);
 
   useEffect(() => {
     const element = frameRef.current;
