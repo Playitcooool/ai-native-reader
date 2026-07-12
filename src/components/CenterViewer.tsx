@@ -112,10 +112,21 @@ export default function CenterViewer({
   const handleContextMenu = (e: React.MouseEvent, doc: Document) => {
     e.preventDefault();
     ctxOriginRef.current = e.currentTarget as HTMLElement;
-    const menuW = 220, menuH = 260;
+    const menuW = 220, menuH = 300;
     const x = Math.min(e.clientX, window.innerWidth - menuW);
     const y = Math.min(e.clientY, window.innerHeight - menuH);
     setCtxMenu({ x, y: Math.max(10, y), doc });
+  };
+
+  const handleDelete = async (doc: Document) => {
+    if (!window.confirm(`Remove "${documentDisplayTitle(doc)}" from the library? Your notes and AI history stay in the local database.`)) { setCtxMenu(null); return; }
+    setCtxMenu(null);
+    try {
+      await useDocumentStore.getState().deleteDocument(doc.id);
+      addToast({ type: "info", message: `Removed "${documentDisplayTitle(doc)}" from the library.` });
+    } catch {
+      addToast({ type: "error", message: "Failed to remove document." });
+    }
   };
 
   if (currentDocument) {
@@ -230,6 +241,9 @@ export default function CenterViewer({
             setCtxMenu(null);
             requestAnimationFrame(() => ctxOriginRef.current?.focus());
           }} />
+          <button className="ctx-menu-item" role="menuitem" onClick={() => handleDelete(ctxMenu.doc)}>
+            Remove from Library
+          </button>
         </div>
       )}
     </div>
