@@ -3,9 +3,9 @@ import { autoFontPercentage, epubReadingPreferenceKey, loadEpubReadingPreference
 
 describe("EPUB reading preferences", () => {
   it("defaults safely and restores valid values", () => {
-    expect(loadEpubReadingPreference("a", { getItem: () => null })).toEqual({ fontMode: "auto" });
+    expect(loadEpubReadingPreference("a", { getItem: () => null })).toEqual({ fontMode: "auto", fontFamily: "book", lineHeight: 1.6, contentWidth: 760 });
     expect(loadEpubReadingPreference("a", { getItem: (key) => key === epubReadingPreferenceKey("a") ? '{"flow":"paginated","fontMode":"manual"}' : null }))
-      .toEqual({ fontMode: "manual" });
+      .toEqual({ fontMode: "manual", fontFamily: "book", lineHeight: 1.6, contentWidth: 760 });
   });
 
   it("rounds Auto sizing to 10% and clamps it", () => {

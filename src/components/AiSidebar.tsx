@@ -9,6 +9,7 @@ import { pagesNeededForWorkflow } from "../features/ai/workflowPages";
 import { useToast } from "./Toast";
 import { Icon } from "./Icons";
 import { useSettingsStore } from "../stores/settingsStore";
+import { navigateEpub } from "../features/epub/epubNavigationTarget";
 const AiMarkdown = lazy(() => import("./AiMarkdown"));
 
 interface AiSidebarProps {
@@ -268,10 +269,11 @@ export default function AiSidebar({ draftInput, onDraftConsumed }: AiSidebarProp
 
   const jumpToPage = useCallback((pageNumber: number) => {
     setCurrentPage(pageNumber);
+    if (currentDocument?.document_type === "epub") navigateEpub({ kind: "spine", index: Math.max(0, pageNumber - 1) });
     if (currentDocument?.id) {
       invoke("update_last_page", { documentId: currentDocument.id, pageNumber }).catch(() => {});
     }
-  }, [currentDocument?.id, setCurrentPage]);
+  }, [currentDocument?.document_type, currentDocument?.id, setCurrentPage]);
 
   const jumpToLatest = useCallback(() => {
     const el = listRef.current;

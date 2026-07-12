@@ -18,6 +18,8 @@ import { EPUB_BOOK_OPTIONS, epubThemeRules } from "./epubViewerConfig";
 import { autoFontPercentage, epubReadingPreferenceKey, loadEpubReadingPreference, type EpubFontMode } from "./epubReadingPreferences";
 import { displayEpubStart } from "./epubDisplay";
 import { epubTurnForKey, type EpubTurn } from "./epubNavigation";
+import { EPUB_NAVIGATE_EVENT, type EpubNavigationTarget } from "./epubNavigationTarget";
+import ShortcutsModal from "../../components/ShortcutsModal";
 
 interface EpubViewerProps {
   documentId: string;
@@ -52,6 +54,9 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
   const [turning, setTurning] = useState(false);
   const [readingDirection, setReadingDirection] = useState<"ltr" | "rtl">("ltr");
   const [fontMode, setFontMode] = useState<EpubFontMode>(() => preferenceRef.current.fontMode);
+  const [fontFamily, setFontFamily] = useState(() => preferenceRef.current.fontFamily);
+  const [lineHeight, setLineHeight] = useState(() => preferenceRef.current.lineHeight);
+  const [contentWidth, setContentWidth] = useState(() => preferenceRef.current.contentWidth);
   const [fontSize, setFontSize] = useState(() => preferenceRef.current.fontMode === "manual" ? Math.round((currentDocument?.last_zoom ?? 1) * 100) : 100);
   const [spineCount, setSpineCount] = useState(currentDocument?.page_count || 1);
   const [location, setLocation] = useState<EpubLocationSnapshot | null>(null);
@@ -60,6 +65,13 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
   const [selectionPos, setSelectionPos] = useState<{ x: number; y: number } | null>(null);
   const [selectionAnchor, setSelectionAnchor] = useState<EpubCfiAnchor | null>(null);
   const [inkRefreshKey, setInkRefreshKey] = useState(0);
+  const [showSearch, setShowSearch] = useState(false);
+  const [showShortcuts, setShowShortcuts] = useState(false);
+  const [showAppearance, setShowAppearance] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<Array<{ pageNum: number; context: string }>>([]);
+  const [searchResultIndex, setSearchResultIndex] = useState(0);
+  const [isSearching, setIsSearching] = useState(false);
   const [inkToolState, setInkToolState] = useState<InkToolState>({
     activeTool: "none",
     color: "#111827",
@@ -113,7 +125,10 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
     themes.select("rustybooks");
     if (fontSize === 100) themes.removeOverride("font-size");
     else themes.fontSize(`${fontSize}%`);
-  }, [fontSize]);
+    themes.override("font-family", fontFamily === "book" ? "initial" : fontFamily === "serif" ? "Georgia, serif" : "Arial, sans-serif");
+    themes.override("line-height", String(lineHeight));
+    if (!fixedLayoutRef.current) themes.override("max-width", `${contentWidth}px`, true);
+  }, [contentWidth, fontFamily, fontSize, lineHeight]);
 
   const recalculateAutoFont = useCallback(() => {
     if (preferenceRef.current.fontMode !== "auto") return;
@@ -376,9 +391,64 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
   }, [recalculateAutoFont]);
 
   useEffect(() => {
-    preferenceRef.current = { fontMode };
+    preferenceRef.current = { fontMode, fontFamily, lineHeight, contentWidth };
     localStorage.setItem(epubReadingPreferenceKey(documentId), JSON.stringify(preferenceRef.current));
-  }, [documentId, fontMode]);
+  }, [contentWidth, documentId, fontFamily, fontMode, lineHeight]);
+
+  useEffect(() => {
+    const navigate = (event: Event) => {
+      const target = (event as CustomEvent<EpubNavigationTarget>).detail;
+      clearSelection();
+      const display = target.kind === "cfi" ? renditionRef.current?.display(target.cfi) : renditionRef.current?.display(target.index);
+      display?.catch(() =>
+        addToast({ type: "error", message: "Could not open that EPUB location." }));
+    };
+    window.addEventListener(EPUB_NAVIGATE_EVENT, navigate);
+    return () => window.removeEventListener(EPUB_NAVIGATE_EVENT, navigate);
+  }, [addToast, clearSelection]);
+
+  const markSearchText = useCallback((query: string) => {
+    const contentsList = (renditionRef.current?.getContents?.() ?? []) as Contents | Contents[];
+    for (const contents of Array.isArray(contentsList) ? contentsList : [contentsList]) {
+      contents.document.querySelectorAll("mark[data-rustybooks-search]").forEach((mark) => mark.replaceWith(...mark.childNodes));
+      if (!query) continue;
+      const walker = contents.document.createTreeWalker(contents.document.body, NodeFilter.SHOW_TEXT);
+      let node: Node | null;
+      while ((node = walker.nextNode())) {
+        const index = node.textContent?.toLocaleLowerCase().indexOf(query.toLocaleLowerCase()) ?? -1;
+        if (index < 0 || !node.parentElement || node.parentElement.closest("script, style")) continue;
+        const range = contents.document.createRange();
+        range.setStart(node, index); range.setEnd(node, index + query.length);
+        const mark = contents.document.createElement("mark");
+        mark.dataset.rustybooksSearch = "true";
+        range.surroundContents(mark);
+        mark.scrollIntoView({ block: "center" });
+        break;
+      }
+    }
+  }, []);
+
+  const goToSearchResult = useCallback(async (index: number) => {
+    const result = searchResults[index];
+    if (!result || !renditionRef.current) return;
+    setSearchResultIndex(index);
+    await renditionRef.current.display(Math.max(0, result.pageNum - 1));
+    requestAnimationFrame(() => markSearchText(searchQuery));
+  }, [markSearchText, searchQuery, searchResults]);
+
+  const performSearch = useCallback(async () => {
+    if (!searchQuery.trim()) { setSearchResults([]); return; }
+    setIsSearching(true);
+    try {
+      const results = await invoke<Array<{ pageNum: number; context: string }>>("search_pages_text", { documentId, query: searchQuery, limit: 200 });
+      setSearchResults(results); setSearchResultIndex(0);
+      if (results.length) {
+        await renditionRef.current?.display(Math.max(0, results[0].pageNum - 1));
+        requestAnimationFrame(() => markSearchText(searchQuery));
+      }
+    } catch { addToast({ type: "error", message: "EPUB search failed." }); }
+    finally { setIsSearching(false); }
+  }, [addToast, documentId, markSearchText, searchQuery]);
 
   const adjustFont = useCallback((delta: number) => {
     setFontMode("manual");
@@ -421,9 +491,12 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
       const target = e.target as { closest?: (selector: string) => Element | null } | null;
       if (target?.closest?.("input, textarea, select, button, a, [contenteditable]")) return;
       if (e.key === "Escape") {
+        if (showSearch) { setShowSearch(false); markSearchText(""); }
+        setShowShortcuts(false);
         clearSelection();
         setInkToolState((state) => ({ ...state, activeTool: "none" }));
       }
+      if (e.key === "?") { e.preventDefault(); setShowShortcuts((value) => !value); }
       const turn = epubTurnForKey(e.key, readingDirection);
       if (turn) { e.preventDefault(); turnPage(turn); }
       if (e.key === "+" || e.key === "=") { e.preventDefault(); adjustFont(10); }
@@ -438,7 +511,15 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
     keyHandlerRef.current = handleKey;
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [adjustFont, clearSelection, onOpenAi, readingDirection, resetAutoFont, selectionText, toggleTheme, turnPage]);
+  }, [adjustFont, clearSelection, markSearchText, onOpenAi, readingDirection, resetAutoFont, selectionText, showSearch, toggleTheme, turnPage]);
+
+  useEffect(() => {
+    const openSearch = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") { event.preventDefault(); setShowSearch(true); }
+    };
+    window.addEventListener("keydown", openSearch);
+    return () => window.removeEventListener("keydown", openSearch);
+  }, []);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -467,6 +548,7 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
         <button className="icon-button" onClick={toggleTheme} title="Switch theme (Cmd+Shift+T)" aria-label="Toggle theme">
           <Icon name={theme === "light" ? "moon" : "sun"} />
         </button>
+        <button className={`icon-button ${showSearch ? "active" : ""}`} onClick={() => setShowSearch((value) => !value)} title="Search (Ctrl+F)" aria-label="Toggle search"><Icon name="search" /></button>
         <InkToolbarControls value={inkToolState} onChange={setInkToolState} />
         <span className="toolbar-center">
           <button className="toolbar-text-button" onClick={onOpenContents} aria-label="Open contents"><Icon name="contents" />Contents</button>
@@ -477,7 +559,22 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
         <button className="icon-button" onClick={() => adjustFont(-10)} disabled={fontSize <= 50} aria-label="Decrease text size"><Icon name="minus" /></button>
         <button className="zoom-reset" onClick={resetAutoFont} aria-label="Use automatic text size">{fontMode === "auto" ? "Auto" : `${fontSize}%`}</button>
         <button className="icon-button" onClick={() => adjustFont(10)} disabled={fontSize >= 200} aria-label="Increase text size"><Icon name="plus" /></button>
+        <button className="icon-button" onClick={() => setShowAppearance((value) => !value)} aria-label="Reading appearance"><Icon name="gear" /></button>
       </div>
+
+      {showSearch && <div className="search-bar">
+        <input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void performSearch(); }} placeholder="Search in book…" autoFocus />
+        <button className="primary-action" onClick={() => void performSearch()} disabled={isSearching || !searchQuery.trim()}>{isSearching ? "Searching" : "Search"}</button>
+        <span className="search-count">{searchResults.length ? `${searchResultIndex + 1} / ${searchResults.length}` : searchQuery && !isSearching ? "No results" : ""}</span>
+        <button className="icon-button" onClick={() => void goToSearchResult(searchResultIndex - 1)} disabled={searchResultIndex <= 0} aria-label="Previous result"><Icon name="prev" /></button>
+        <button className="icon-button" onClick={() => void goToSearchResult(searchResultIndex + 1)} disabled={searchResultIndex >= searchResults.length - 1} aria-label="Next result"><Icon name="next" /></button>
+        <button className="icon-button" onClick={() => { setShowSearch(false); markSearchText(""); }} aria-label="Close search"><Icon name="close" /></button>
+      </div>}
+      {showAppearance && <div className="epub-appearance" role="dialog" aria-label="Reading appearance">
+        <label>Font<select value={fontFamily} onChange={(event) => setFontFamily(event.target.value as typeof fontFamily)}><option value="book">Book</option><option value="serif">Serif</option><option value="sans-serif">Sans serif</option></select></label>
+        <label>Line spacing<input type="range" min="1.2" max="2.2" step="0.1" value={lineHeight} onChange={(event) => setLineHeight(Number(event.target.value))} /></label>
+        <label>Text width<input type="range" min="480" max="1200" step="40" value={contentWidth} onChange={(event) => setContentWidth(Number(event.target.value))} /></label>
+      </div>}
 
       {error ? (
         <div style={{ padding: 24, textAlign: "center" }}><p style={{ color: "var(--danger-color)" }}>{error}</p></div>
@@ -526,6 +623,7 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
           onTranslate={handleTranslate}
         />
       )}
+      {showShortcuts && <ShortcutsModal onClose={() => setShowShortcuts(false)} />}
     </div>
   );
 }

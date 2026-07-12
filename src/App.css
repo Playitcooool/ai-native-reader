@@ -1598,6 +1598,23 @@
   border: 0;
 }
 
+.epub-appearance {
+  position: absolute;
+  top: 48px;
+  right: 12px;
+  z-index: 20;
+  display: grid;
+  gap: 10px;
+  width: 230px;
+  padding: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-primary);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .18);
+}
+
+.epub-appearance label { display: grid; gap: 4px; font-size: 12px; }
+
 .epub-ink-layer {
   position: absolute;
   inset: 0;

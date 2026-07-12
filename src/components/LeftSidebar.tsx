@@ -8,6 +8,7 @@ import type { Annotation } from "../stores/notesStore";
 import type { Document } from "../stores/documentStore";
 import TocSidebar from "../features/toc/TocSidebar";
 import { chapterToPercent } from "../features/epub/epubProgress";
+import { annotationNavigationTarget, navigateEpub } from "../features/epub/epubNavigationTarget";
 import { buildLibraryTree, type LibraryTreeNode } from "../features/library/libraryTree";
 import { useToast } from "./Toast";
 import { CollectionAssignmentMenu, CollectionFilterChips } from "./CollectionControls";
@@ -16,6 +17,11 @@ import { useSettingsStore } from "../stores/settingsStore";
 export type SidebarTab = "contents" | "library" | "notes";
 type SidebarVariant = "library" | "reader";
 const NOTE_LIKE_ANNOTATION_TYPES = new Set(["note", "ai_note"]);
+
+function annotationLocationLabel(annotation: Annotation, spineCount: number): string {
+  const target = annotationNavigationTarget(annotation.anchor_json, annotation.page_number, spineCount);
+  return `Section ${target.kind === "spine" ? target.index + 1 : annotation.page_number} · ${annotation.page_number}%`;
+}
 
 function FileTreeView({ nodes, currentId, onSelect, onContextMenu }: {
   nodes: LibraryTreeNode[];
@@ -198,6 +204,7 @@ export default function LeftSidebar({
     const doc = currentDocument;
     if (doc) {
       setCurrentPage(page);
+      if (doc.document_type === "epub") navigateEpub({ kind: "spine", index: Math.max(0, page - 1) });
       const pageNumber = doc.document_type === "epub" ? chapterToPercent(page, doc.page_count ?? totalPages ?? 1) : page;
       invoke("update_last_page", { documentId: doc.id, pageNumber }).catch(() => {});
     }
@@ -378,14 +385,17 @@ export default function LeftSidebar({
                       {isExporting ? "Exporting..." : "Export Notes"}
                     </button>
                     {notes.map((ann) => (
-                      <div key={ann.id} style={{
+                      <div key={ann.id} role="button" tabIndex={0} onClick={() => {
+                        if (currentDocument?.document_type === "epub") navigateEpub(annotationNavigationTarget(ann.anchor_json, ann.page_number, currentDocument.page_count ?? totalPages));
+                        else setCurrentPage(ann.page_number);
+                      }} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.click(); }} style={{
                         padding: "8px 10px", background: "var(--bg-secondary)",
                         border: "1px solid var(--border-color)", borderRadius: 4, fontSize: 13,
                       }}>
                         <div style={{ fontWeight: 500, marginBottom: 2 }}>
                           {ann.type === "highlight" ? "Highlight" : ann.type === "note" ? "Note" : ann.type}
                           <span style={{ fontSize: 11, color: "var(--text-muted)", marginLeft: 6 }}>
-                            p.{ann.page_number}
+                            {currentDocument?.document_type === "epub" ? annotationLocationLabel(ann, currentDocument.page_count ?? totalPages) : `p.${ann.page_number}`}
                           </span>
                         </div>
                         {ann.selected_text && (
@@ -397,7 +407,8 @@ export default function LeftSidebar({
                           <div style={{ fontSize: 12 }}>{ann.note_text}</div>
                         )}
                         <button
-                          onClick={async () => {
+                          onClick={async (event) => {
+                            event.stopPropagation();
                             if (window.confirm("Delete this note?")) {
                               try { await deleteAnnotation(ann.id); }
                               catch { addToast({ type: "error", message: "Failed to delete annotation." }); }
