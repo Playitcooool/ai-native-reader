@@ -6,6 +6,7 @@ on:
   pull_request:
     branches: [master]
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
@@ -78,7 +79,7 @@ jobs:
         run: cargo test --locked
 
       - name: Audit Rust dependencies
-        uses: rustsec/audit-check@v2.0.0
+        uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           working-directory: src-tauri

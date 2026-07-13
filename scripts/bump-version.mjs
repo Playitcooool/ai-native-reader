@@ -18,7 +18,7 @@ const versions = new Map([
   ["Cargo.toml", matchVersion("src-tauri/Cargo.toml", /^version = "(\d+\.\d+\.\d+)"/m)],
   ["Cargo.lock", matchVersion("src-tauri/Cargo.lock", /\[\[package\]\]\nname = "rustybooks"\nversion = "(\d+\.\d+\.\d+)"/)],
   ["tauri.conf.json", readJson("src-tauri/tauri.conf.json").version],
-  ["README.md", matchVersion("README.md", /Current version: \*\*(\d+\.\d+\.\d+)\*\*/)],
+  ["README.md", matchVersion("README.md", /Development version: \*\*(\d+\.\d+\.\d+)\*\*/)],
 ]);
 const current = pkg.version;
 for (const [file, version] of versions) {
@@ -28,6 +28,11 @@ for (const [file, version] of versions) {
 const parts = current.split(".").map(Number);
 if (parts.length !== 3 || parts.some((part) => !Number.isSafeInteger(part) || part < 0)) {
   throw new Error(`Unsupported version: ${current}`);
+}
+if (bump === "check") {
+  if (process.env.GITHUB_OUTPUT) fs.appendFileSync(process.env.GITHUB_OUTPUT, `version=${current}\n`);
+  console.log(current);
+  process.exit(0);
 }
 if (bump === "major") parts.splice(0, 3, parts[0] + 1, 0, 0);
 else if (bump === "minor") parts.splice(1, 2, parts[1] + 1, 0);
@@ -54,7 +59,11 @@ replace(
   /(\[\[package\]\]\nname = "rustybooks"\nversion = )"\d+\.\d+\.\d+"/,
   `$1"${nextVersion}"`,
 );
-replace("README.md", /Current version: \*\*\d+\.\d+\.\d+\*\*/, `Current version: **${nextVersion}**`);
+replace(
+  "README.md",
+  /Development version: \*\*\d+\.\d+\.\d+\*\*/,
+  `Development version: **${nextVersion}**`,
+);
 
 if (process.env.GITHUB_OUTPUT) fs.appendFileSync(process.env.GITHUB_OUTPUT, `version=${nextVersion}\n`);
 console.log(nextVersion);
