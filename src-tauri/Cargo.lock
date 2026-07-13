@@ -3883,6 +3883,7 @@ dependencies = [
  "lopdf",
  "notify",
  "reqwest 0.12.28",
+ "rfd",
  "rusqlite",
  "scraper",
  "serde",

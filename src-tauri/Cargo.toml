@@ -24,6 +24,7 @@ uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", features = ["serde"] }
 notify = { version = "6", features = ["macos_fsevent"] }
 reqwest = { version = "0.12", features = ["json", "stream"] }
+rfd = { version = "0.16", default-features = false, features = ["common-controls-v6"] }
 tokio = { version = "1", features = ["rt", "macros", "sync", "time", "net"] }
 tokio-stream = "0.1"
 epub = "2.1"

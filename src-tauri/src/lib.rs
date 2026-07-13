@@ -10,6 +10,8 @@ pub mod secrets;
 use commands::library::LibraryState;
 use commands::settings::DbState;
 use std::collections::HashSet;
+use std::error::Error;
+use std::io;
 use std::sync::Mutex;
 use std::time::Duration;
 use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
@@ -32,103 +34,125 @@ fn handle_menu_event(app: &tauri::AppHandle, event: tauri::menu::MenuEvent) {
     }
 }
 
+fn configure_app(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
+    let app_handle = app.handle().clone();
+    let app_dir = app_handle.path().app_data_dir().map_err(|error| {
+        io::Error::other(format!(
+            "Could not locate the application data folder: {error}"
+        ))
+    })?;
+    std::fs::create_dir_all(&app_dir).map_err(|error| {
+        io::Error::other(format!(
+            "Could not create the application data folder at {}: {error}",
+            app_dir.display()
+        ))
+    })?;
+    let db_path = app_dir.join("reader.db");
+    let conn = db::migrations::initialize_database(&db_path).map_err(|error| {
+        io::Error::other(format!(
+            "Could not open the local database at {}: {error}",
+            db_path.display()
+        ))
+    })?;
+    if let Err(error) = secrets::migrate_provider_api_keys(&conn) {
+        eprintln!("Warning: failed to migrate legacy provider API keys: {error}");
+    }
+    let http_client = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(180))
+        .tcp_keepalive(Duration::from_secs(30))
+        .user_agent("RustyBooks/1.0")
+        .build()
+        .map_err(|error| io::Error::other(format!("Could not initialize networking: {error}")))?;
+
+    app.manage(DbState(Mutex::new(conn)));
+    app.manage(commands::ai::AiCancelState(Mutex::new(HashSet::new())));
+    app.manage(http_client);
+    app.manage(LibraryState {
+        watcher: Mutex::new(None),
+        db_path: db_path.to_string_lossy().to_string(),
+    });
+
+    commands::library::init_watcher_if_configured(app.handle());
+
+    let open = MenuItemBuilder::with_id("open_pdf", "Open Document…")
+        .accelerator("CmdOrCtrl+O")
+        .build(app)?;
+    let open_folder = MenuItemBuilder::with_id("open_folder", "Import Folder…")
+        .accelerator("CmdOrCtrl+Shift+O")
+        .build(app)?;
+    let settings = MenuItemBuilder::with_id("settings", "Settings…")
+        .accelerator("CmdOrCtrl+,")
+        .build(app)?;
+    let app_menu = SubmenuBuilder::new(app, "RustyBooks")
+        .about(None)
+        .item(&settings)
+        .separator()
+        .services()
+        .separator()
+        .hide()
+        .hide_others()
+        .show_all()
+        .separator()
+        .quit()
+        .build()?;
+    let file_menu = SubmenuBuilder::new(app, "File")
+        .item(&open)
+        .item(&open_folder)
+        .build()?;
+    let edit_menu = SubmenuBuilder::new(app, "Edit")
+        .undo()
+        .redo()
+        .separator()
+        .cut()
+        .copy()
+        .paste()
+        .select_all()
+        .build()?;
+    let window_menu = SubmenuBuilder::new(app, "Window")
+        .minimize()
+        .maximize()
+        .fullscreen()
+        .separator()
+        .close_window()
+        .separator()
+        .bring_all_to_front()
+        .build()?;
+    let menu = MenuBuilder::new(app)
+        .item(&app_menu)
+        .item(&file_menu)
+        .item(&edit_menu)
+        .item(&window_menu)
+        .build()?;
+    app.set_menu(menu)?;
+    Ok(())
+}
+
+fn show_startup_error(app: &tauri::App, error: &dyn Error) {
+    eprintln!("RustyBooks startup failed: {error}");
+    if let Some(window) = app.get_webview_window("main") {
+        window.hide().ok();
+    }
+    rfd::MessageDialog::new()
+        .set_title("RustyBooks couldn't start")
+        .set_level(rfd::MessageLevel::Error)
+        .set_description(format!(
+            "RustyBooks could not finish starting.\n\n{error}\n\nCheck available disk space and app-data permissions, then reopen the app. Your PDF and EPUB files were not modified."
+        ))
+        .set_buttons(rfd::MessageButtons::Ok)
+        .show();
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let result = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .setup(|app| {
-            let app_handle = app.handle().clone();
-            let app_dir = app_handle
-                .path()
-                .app_data_dir()
-                .expect("failed to resolve app data dir");
-            if let Err(e) = std::fs::create_dir_all(&app_dir) {
-                eprintln!("Warning: failed to create app data dir: {}", e);
+            if let Err(error) = configure_app(app) {
+                show_startup_error(app, error.as_ref());
+                std::process::exit(1);
             }
-            let db_path = app_dir.join("reader.db");
-            let conn = db::migrations::initialize_database(&db_path)
-                .expect("failed to initialize database");
-            if let Err(e) = secrets::migrate_provider_api_keys(&conn) {
-                eprintln!("Warning: failed to migrate legacy provider API keys: {e}");
-            }
-            app.manage(DbState(Mutex::new(conn)));
-            app.manage(commands::ai::AiCancelState(Mutex::new(HashSet::new())));
-            app.manage(
-                reqwest::Client::builder()
-                    .connect_timeout(Duration::from_secs(10))
-                    .timeout(Duration::from_secs(180))
-                    .tcp_keepalive(Duration::from_secs(30))
-                    .user_agent("RustyBooks/1.0")
-                    .build()
-                    .expect("failed to build HTTP client"),
-            );
-
-            app.manage(LibraryState {
-                watcher: std::sync::Mutex::new(None),
-                db_path: db_path.to_string_lossy().to_string(),
-            });
-
-            // Start watcher if a folder was previously configured
-            commands::library::init_watcher_if_configured(app.handle());
-
-            // Build native menus
-            let open = MenuItemBuilder::with_id("open_pdf", "Open Document…")
-                .accelerator("CmdOrCtrl+O")
-                .build(app)?;
-            let open_folder = MenuItemBuilder::with_id("open_folder", "Import Folder…")
-                .accelerator("CmdOrCtrl+Shift+O")
-                .build(app)?;
-            let settings = MenuItemBuilder::with_id("settings", "Settings…")
-                .accelerator("CmdOrCtrl+,")
-                .build(app)?;
-            let app_menu = SubmenuBuilder::new(app, "RustyBooks")
-                .about(None)
-                .item(&settings)
-                .separator()
-                .services()
-                .separator()
-                .hide()
-                .hide_others()
-                .show_all()
-                .separator()
-                .quit()
-                .build()?;
-            let file_menu = SubmenuBuilder::new(app, "File")
-                .item(&open)
-                .item(&open_folder)
-                .build()?;
-
-            // macOS routes Cmd+C/V/X/A through the menu system; without an Edit
-            // submenu these shortcuts don't reach webview text inputs.
-            let edit_menu = SubmenuBuilder::new(app, "Edit")
-                .undo()
-                .redo()
-                .separator()
-                .cut()
-                .copy()
-                .paste()
-                .select_all()
-                .build()?;
-
-            let window_menu = SubmenuBuilder::new(app, "Window")
-                .minimize()
-                .maximize()
-                .fullscreen()
-                .separator()
-                .close_window()
-                .separator()
-                .bring_all_to_front()
-                .build()?;
-
-            let menu = MenuBuilder::new(app)
-                .item(&app_menu)
-                .item(&file_menu)
-                .item(&edit_menu)
-                .item(&window_menu)
-                .build()?;
-            app.set_menu(menu)?;
-
             Ok(())
         })
         .on_menu_event(handle_menu_event)
@@ -188,6 +212,9 @@ pub fn run() {
             commands::links::open_external_url,
             commands::translate::translate_text,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .run(tauri::generate_context!());
+    if let Err(error) = result {
+        eprintln!("RustyBooks stopped: {error}");
+        std::process::exit(1);
+    }
 }
