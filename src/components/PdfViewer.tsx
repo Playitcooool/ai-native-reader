@@ -386,6 +386,7 @@ export default function PdfViewer({ documentId, onBackHome, onOpenLibrary, onOpe
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented) return;
+      if (showShortcuts) return;
       if (handleSearchShortcut(e, () => {
         setShowSearch(true);
         requestAnimationFrame(() => searchInputRef.current?.focus());
@@ -413,12 +414,6 @@ export default function PdfViewer({ documentId, onBackHome, onOpenLibrary, onOpe
       // Let system shortcuts (Cmd+C/V/A, etc.) pass through
       if (e.metaKey || e.ctrlKey) return;
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-      // When shortcut help is open, only allow Escape or ? to close it
-      if (showShortcuts) {
-        if (e.key === "Escape" || e.key === "?") { setShowShortcuts(false); }
-        e.preventDefault();
-        return;
-      }
       if (e.key === "ArrowLeft" || e.key === "PageUp") { e.preventDefault(); goToPage(currentPage - 1); }
       if (e.key === "ArrowRight" || e.key === "PageDown") { e.preventDefault(); goToPage(currentPage + 1); }
       if (e.key === "+" || e.key === "=") { e.preventDefault(); handleSetZoom(zoom + 0.25); }

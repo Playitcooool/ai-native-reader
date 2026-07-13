@@ -1627,6 +1627,46 @@
 
 .epub-appearance label { display: grid; gap: 4px; font-size: 12px; }
 
+.shortcuts-dialog {
+  width: min(380px, calc(100vw - 32px));
+  max-width: none;
+  padding: 0;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, .3);
+}
+
+.shortcuts-dialog::backdrop { background: rgba(0, 0, 0, .42); }
+
+.shortcuts-content { padding: 18px 20px 16px; }
+
+.shortcuts-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.shortcuts-header h2 { margin: 0; font-size: 15px; }
+
+.shortcuts-list { margin: 0; font-size: 12px; }
+
+.shortcuts-row,
+.shortcuts-list {
+  display: grid;
+  grid-template-columns: minmax(90px, auto) 1fr;
+  gap: 7px 16px;
+}
+
+.shortcuts-row { display: contents; }
+.shortcuts-list dt,
+.shortcuts-list dd { margin: 0; }
+.shortcuts-list kbd { color: var(--accent-color); font-family: var(--font-mono); }
+.shortcuts-hint { margin: 14px 0 0; color: var(--text-muted); font-size: 11px; text-align: center; }
+
 .epub-ink-layer {
   position: absolute;
   inset: 0;
