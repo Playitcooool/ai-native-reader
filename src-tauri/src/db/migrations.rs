@@ -14,7 +14,8 @@ pub fn initialize_database(db_path: &Path) -> Result<Connection> {
 }
 
 fn run_migrations(conn: &Connection) -> Result<()> {
-    conn.execute_batch(
+    let tx = conn.unchecked_transaction()?;
+    tx.execute_batch(
         "
         CREATE TABLE IF NOT EXISTS documents (
             id TEXT PRIMARY KEY,
@@ -207,29 +208,45 @@ fn run_migrations(conn: &Connection) -> Result<()> {
         ",
     )?;
 
-    // Add columns for existing databases
-    let _ = conn.execute(
-        "ALTER TABLE documents ADD COLUMN document_type TEXT DEFAULT 'pdf'",
-        [],
-    );
-    let _ = conn.execute(
-        "ALTER TABLE documents ADD COLUMN author TEXT DEFAULT NULL",
-        [],
-    );
-    let _ = conn.execute("ALTER TABLE documents ADD COLUMN access_bookmark BLOB", []);
-    let _ = conn.execute("ALTER TABLE documents ADD COLUMN removed_at TEXT", []);
-    let _ = conn.execute(
-        "ALTER TABLE library_folder ADD COLUMN access_bookmark BLOB",
-        [],
-    );
-    let _ = conn.execute(
-        "ALTER TABLE provider_settings ADD COLUMN is_translation INTEGER DEFAULT 0",
-        [],
-    );
-    conn.execute(
+    for (table, column, definition) in [
+        (
+            "documents",
+            "document_type",
+            "document_type TEXT DEFAULT 'pdf'",
+        ),
+        ("documents", "author", "author TEXT DEFAULT NULL"),
+        ("documents", "access_bookmark", "access_bookmark BLOB"),
+        ("documents", "removed_at", "removed_at TEXT"),
+        ("library_folder", "access_bookmark", "access_bookmark BLOB"),
+        (
+            "provider_settings",
+            "is_translation",
+            "is_translation INTEGER DEFAULT 0",
+        ),
+    ] {
+        add_column_if_missing(&tx, table, column, definition)?;
+    }
+    tx.execute(
         "CREATE INDEX IF NOT EXISTS idx_provider_translation ON provider_settings(is_translation)",
         [],
     )?;
+    tx.commit()
+}
+
+fn add_column_if_missing(
+    conn: &Connection,
+    table: &str,
+    column: &str,
+    definition: &str,
+) -> Result<()> {
+    let exists: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM pragma_table_info(?1) WHERE name = ?2)",
+        rusqlite::params![table, column],
+        |row| row.get(0),
+    )?;
+    if !exists {
+        conn.execute(&format!("ALTER TABLE {table} ADD COLUMN {definition}"), [])?;
+    }
     Ok(())
 }
 
@@ -260,6 +277,26 @@ mod tests {
                 .unwrap();
             assert_eq!(exists, 1, "{name}");
         }
+    }
+
+    #[test]
+    fn column_migrations_are_idempotent_and_surface_errors() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute("CREATE TABLE sample (id INTEGER)", [])
+            .unwrap();
+
+        add_column_if_missing(&conn, "sample", "value", "value TEXT").unwrap();
+        add_column_if_missing(&conn, "sample", "value", "value TEXT").unwrap();
+
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('sample') WHERE name = 'value'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1);
+        assert!(add_column_if_missing(&conn, "missing", "value", "value TEXT").is_err());
     }
 
     #[test]
