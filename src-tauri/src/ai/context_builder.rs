@@ -596,6 +596,7 @@ pub fn build_page_context(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn build_range_context(
     conn: &Connection,
     document_id: &str,
@@ -694,11 +695,13 @@ pub fn build_range_context(
         }
     }
 
+    let requested_page_count = end_page.saturating_sub(start_page).saturating_add(1);
+    let ready_page_count = i64::try_from(page_texts.len()).unwrap_or(i64::MAX);
     if page_texts.is_empty() {
         warnings.push(
             "No page text available for this range. Extraction may still be in progress.".into(),
         );
-    } else if page_texts.len() < (end_page - start_page).abs() as usize + 1 {
+    } else if ready_page_count < requested_page_count {
         warnings.push(format!(
             "Using {} ready page{} from requested range {}-{}. OCR/text extraction may still be running for the rest.",
             page_texts.len(),
@@ -970,6 +973,7 @@ pub fn build_toc_index_context(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn build_context_pack_for_mode(
     conn: &Connection,
     document_id: &str,

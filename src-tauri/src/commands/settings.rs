@@ -8,6 +8,7 @@ use uuid::Uuid;
 
 pub struct DbState(pub Mutex<rusqlite::Connection>);
 
+#[allow(clippy::too_many_arguments)]
 fn public_provider_settings(
     id: String,
     provider_type: String,

@@ -80,6 +80,7 @@ pub fn provider_requires_api_key(provider_type: &str) -> bool {
 }
 
 /// Call the OpenAI-compatible /chat/completions endpoint.
+#[allow(clippy::too_many_arguments)]
 pub async fn chat_completion(
     client: &reqwest::Client,
     provider_type: &str,
@@ -173,6 +174,7 @@ struct SseDelta {
 /// Call the OpenAI-compatible /chat/completions endpoint with streaming.
 /// Calls `on_token` with each content token as it arrives.
 /// Returns the accumulated full text on success.
+#[allow(clippy::too_many_arguments)]
 pub async fn chat_completion_stream(
     client: &reqwest::Client,
     provider_type: &str,
@@ -459,6 +461,7 @@ struct AnthropicSseDelta {
     text: Option<String>,
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn anthropic_chat_completion_stream(
     client: &reqwest::Client,
     base_url: &str,

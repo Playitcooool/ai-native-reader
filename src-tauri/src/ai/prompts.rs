@@ -1,4 +1,4 @@
-/// Prompt templates for AI workflows.
+//! Prompt templates for AI workflows.
 
 pub fn system_message() -> &'static str {
     "You are an AI reading assistant inside a PDF reader. Answer only using the provided PDF context. \

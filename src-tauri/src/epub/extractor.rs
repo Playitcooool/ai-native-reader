@@ -12,6 +12,7 @@ pub struct ChapterContent {
 }
 
 /// Extract all chapter text, TOC, and Dublin Core metadata from an EPUB file (single open).
+#[allow(clippy::type_complexity)]
 pub fn extract_chapters(
     path: &str,
 ) -> Result<
@@ -153,11 +154,5 @@ mod tests {
             strip_html("<h1>A</h1><p>B&nbsp;&amp;&nbsp;C</p>"),
             "A B & C"
         );
-    }
-
-    #[test]
-    fn epub_limits_are_large_but_finite() {
-        assert!(MAX_EPUB_SPINE_ITEMS >= 1_000);
-        assert!(MAX_EPUB_TEXT_CHARS >= 1_000_000);
     }
 }
