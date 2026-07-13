@@ -24,6 +24,7 @@ interface NotesState {
 }
 
 const annotationLoads = new Map<string, Promise<void>>();
+let latestAnnotationLoadKey: string | null = null;
 
 function annotationLoadKey(documentId: string, pageNumber?: number): string {
   return `${documentId}:${pageNumber ?? "all"}`;
@@ -34,6 +35,7 @@ export const useNotesStore = create<NotesState>((set) => ({
   isLoading: false,
   loadAnnotations: async (documentId, pageNumber) => {
     const key = annotationLoadKey(documentId, pageNumber);
+    latestAnnotationLoadKey = key;
     const pending = annotationLoads.get(key);
     if (pending) return pending;
 
@@ -42,10 +44,10 @@ export const useNotesStore = create<NotesState>((set) => ({
       input: { document_id: documentId, page_number: pageNumber ?? null },
     })
       .then((result) => {
-        set({ annotations: result, isLoading: false });
+        if (latestAnnotationLoadKey === key) set({ annotations: result, isLoading: false });
       })
       .catch((e) => {
-        set({ isLoading: false });
+        if (latestAnnotationLoadKey === key) set({ isLoading: false });
         throw e;
       })
       .finally(() => {

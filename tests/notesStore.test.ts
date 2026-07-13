@@ -28,4 +28,21 @@ describe("notesStore", () => {
     });
     expect(useNotesStore.getState().annotations).toHaveLength(1);
   });
+
+  it("ignores annotations from a document that finished loading late", async () => {
+    let finishFirst!: (annotations: any[]) => void;
+    let finishSecond!: (annotations: any[]) => void;
+    vi.mocked(invoke)
+      .mockImplementationOnce(() => new Promise((resolve) => { finishFirst = resolve; }))
+      .mockImplementationOnce(() => new Promise((resolve) => { finishSecond = resolve; }));
+
+    const firstLoad = useNotesStore.getState().loadAnnotations("first");
+    const secondLoad = useNotesStore.getState().loadAnnotations("second");
+    finishSecond([{ id: "second-note" }]);
+    await secondLoad;
+    finishFirst([{ id: "first-note" }]);
+    await firstLoad;
+
+    expect(useNotesStore.getState().annotations).toEqual([{ id: "second-note" }]);
+  });
 });

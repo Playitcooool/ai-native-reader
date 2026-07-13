@@ -147,27 +147,6 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
   setSelectedCollectionId: (selectedCollectionId) => set({ selectedCollectionId }),
   setCurrentDocument: (doc) => {
     const selected = doc ? { ...doc, last_opened_at: new Date().toISOString() } : null;
-    if (doc) {
-      get().startHeartbeat();
-      invoke("mark_document_opened", { documentId: doc.id }).catch(() => {});
-      // EPUBs from bulk import may not have content extracted yet
-      if (doc.document_type === 'epub' && doc.parse_status !== 'ready') {
-        invoke("extract_epub_content", { documentId: doc.id })
-          .then(() => invoke<Document | null>("get_document", { documentId: doc.id }))
-          .then((updated) => { if (updated) set((s) => ({
-            currentDocument: updated,
-            documents: s.documents.map((item) => item.id === updated.id ? updated : item),
-          })); })
-          .catch(() => {});
-      }
-      // Refresh metadata for PDFs that were imported without extraction
-      if (doc.document_type === 'pdf' && (!doc.author || !doc.title || doc.title === doc.original_filename)) {
-        invoke<Document>("refresh_document_metadata", { documentId: doc.id })
-          .then((updated) => set({ currentDocument: updated })).catch(() => {});
-      }
-    } else {
-      get().stopHeartbeat();
-    }
     set((s) => ({
       documents: selected ? [selected, ...s.documents.filter((d) => d.id !== selected.id)] : s.documents,
       currentDocument: selected,
@@ -175,7 +154,36 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
         ? percentToChapter(selected.last_page ?? 0, selected.page_count ?? 1)
         : selected?.last_page ?? 1,
       zoom: selected?.last_zoom ?? 1.0,
+      totalPages: s.currentDocument?.id === selected?.id ? s.totalPages : selected?.page_count ?? 0,
+      tocNodes: s.currentDocument?.id === selected?.id ? s.tocNodes : [],
+      activeTocNodeId: s.currentDocument?.id === selected?.id ? s.activeTocNodeId : null,
     }));
+    if (!selected) {
+      get().stopHeartbeat();
+      return;
+    }
+
+    get().startHeartbeat();
+    invoke("mark_document_opened", { documentId: selected.id }).catch(() => {});
+    // EPUBs from bulk import may not have content extracted yet
+    if (selected.document_type === 'epub' && selected.parse_status !== 'ready') {
+      invoke("extract_epub_content", { documentId: selected.id })
+        .then(() => invoke<Document | null>("get_document", { documentId: selected.id }))
+        .then((updated) => { if (updated) set((s) => ({
+          currentDocument: s.currentDocument?.id === updated.id ? updated : s.currentDocument,
+          documents: s.documents.map((item) => item.id === updated.id ? updated : item),
+        })); })
+        .catch(() => {});
+    }
+    // Refresh metadata for PDFs that were imported without extraction
+    if (selected.document_type === 'pdf' && (!selected.author || !selected.title || selected.title === selected.original_filename)) {
+      invoke<Document>("refresh_document_metadata", { documentId: selected.id })
+        .then((updated) => set((s) => ({
+          currentDocument: s.currentDocument?.id === updated.id ? updated : s.currentDocument,
+          documents: s.documents.map((item) => item.id === updated.id ? updated : item),
+        })))
+        .catch(() => {});
+    }
   },
   setCurrentPage: (page) => set({ currentPage: page }),
   setTotalPages: (count) => set({ totalPages: count }),
@@ -185,29 +193,32 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
   setLibraryFolder: (folder) => set({ libraryFolder: folder }),
 
   startHeartbeat: () => {
-    const { heartbeatInterval } = get();
-    if (heartbeatInterval) return;
+    const pageDocument = globalThis.document;
+    if (!pageDocument) return;
 
-    const tick = () => invoke("record_reading_heartbeat", { seconds: 15 });
-    const interval = setInterval(tick, 15_000);
+    if (!get()._onVisibility) {
+      const onVisibility = () => {
+        const activeInterval = get().heartbeatInterval;
+        if (pageDocument.hidden) {
+          if (activeInterval) clearInterval(activeInterval);
+          set({ heartbeatInterval: null });
+        } else if (get().currentDocument) {
+          get().startHeartbeat();
+        }
+      };
+      pageDocument.addEventListener("visibilitychange", onVisibility);
+      set({ _onVisibility: onVisibility });
+    }
 
-    const onVisibility = () => {
-      if (document.hidden) {
-        clearInterval(interval);
-        set({ heartbeatInterval: null });
-      } else {
-        get().startHeartbeat();
-      }
-    };
-    document.addEventListener("visibilitychange", onVisibility);
-
-    set({ heartbeatInterval: interval, _onVisibility: onVisibility });
+    if (get().heartbeatInterval || pageDocument.hidden || !get().currentDocument) return;
+    const tick = () => { invoke("record_reading_heartbeat", { seconds: 15 }).catch(() => {}); };
+    set({ heartbeatInterval: setInterval(tick, 15_000) });
   },
 
   stopHeartbeat: () => {
     const { heartbeatInterval, _onVisibility } = get();
     if (heartbeatInterval) clearInterval(heartbeatInterval);
-    if (_onVisibility) document.removeEventListener("visibilitychange", _onVisibility);
+    if (_onVisibility) globalThis.document?.removeEventListener("visibilitychange", _onVisibility);
     set({ heartbeatInterval: null, _onVisibility: null });
   },
 
@@ -285,7 +296,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
   },
   loadToc: async (documentId) => {
     const nodes = await invoke<TocNode[]>("get_toc_tree", { documentId });
-    set({ tocNodes: nodes });
+    if (get().currentDocument?.id === documentId) set({ tocNodes: nodes });
   },
   handleOpenDocument: async () => {
     if (!isTauriRuntime()) return;
