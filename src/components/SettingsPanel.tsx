@@ -358,7 +358,10 @@ export default function SettingsPanel() {
           </div>
         </section>
 
-        <section className="settings-provider-section" hidden={section !== "provider"}>
+        <form className="settings-provider-section" hidden={section !== "provider"} onSubmit={(event) => {
+          event.preventDefault();
+          void handleSave();
+        }}>
           <h3>AI Provider</h3>
           <label htmlFor="provider-type">Provider Type</label>
           <select id="provider-type"
@@ -372,19 +375,21 @@ export default function SettingsPanel() {
           </select>
 
           <label htmlFor="base-url">Base URL</label>
-          <input id="base-url" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder={defaults.baseUrl} />
+          <input id="base-url" type="url" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder={defaults.baseUrl} spellCheck={false} />
 
           <label htmlFor="api-key">API Key</label>
           <input
             id="api-key"
             type="password"
+            autoComplete="off"
+            spellCheck={false}
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
             placeholder={editingId ? "Saved; leave blank to keep" : defaults.apiKeyPlaceholder}
           />
 
           <label htmlFor="model">Model</label>
-          <input id="model" value={model} onChange={(e) => setModel(e.target.value)} placeholder={defaults.modelPlaceholder} />
+          <input id="model" value={model} onChange={(e) => setModel(e.target.value)} placeholder={defaults.modelPlaceholder} spellCheck={false} />
 
           <label className="settings-checkbox">
             <input type="checkbox" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} />
@@ -397,13 +402,13 @@ export default function SettingsPanel() {
           </label>
 
           <div style={{ display: "flex", gap: 8 }}>
-            <button className="settings-primary-button" onClick={handleSave} disabled={saving} title="Save">
+            <button type="submit" className="settings-primary-button" disabled={saving} title="Save">
               {saving ? "Saving..." : "Save"}
             </button>
           </div>
 
           {status && (
-            <p className={status.ok ? "settings-status-ok" : "settings-status-error"}>
+            <p role={status.ok ? "status" : "alert"} className={status.ok ? "settings-status-ok" : "settings-status-error"}>
               {status.msg}
             </p>
           )}
@@ -414,31 +419,24 @@ export default function SettingsPanel() {
               {settings.map((s) => (
                 <div
                   key={s.id}
-                  onClick={() => selectProvider(s.id)}
                   className={editingId === s.id ? "active" : ""}
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      selectProvider(s.id);
-                    }
-                  }}
                 >
-                  <span className="settings-provider-model">{s.model}</span>
-                  <span className="settings-provider-url">{s.base_url ?? "N/A"}</span>
-                  <span className="settings-provider-badges">
-                    {s.is_default && <span>Default</span>}
-                    {s.is_translation && <span>Translate</span>}
-                    <button onClick={(e) => { e.stopPropagation(); handleTest(s.id); }} disabled={testing} title="Test connection">
-                      {testing ? "Testing..." : "Test"}
-                    </button>
-                  </span>
+                  <button type="button" className="settings-provider-choice" onClick={() => selectProvider(s.id)} aria-pressed={editingId === s.id}>
+                    <span className="settings-provider-model">{s.model}</span>
+                    <span className="settings-provider-url">{s.base_url ?? "N/A"}</span>
+                    <span className="settings-provider-badges">
+                      {s.is_default && <span>Default</span>}
+                      {s.is_translation && <span>Translate</span>}
+                    </span>
+                  </button>
+                  <button type="button" className="settings-provider-test" onClick={() => handleTest(s.id)} disabled={testing} aria-label={`Test ${s.model} connection`}>
+                    {testing ? "Testing..." : "Test"}
+                  </button>
                 </div>
               ))}
             </div>
           )}
-        </section>
+        </form>
 
         <section className="settings-form-section" hidden={section !== "data"}>
           <h3>Data</h3>
@@ -456,7 +454,7 @@ export default function SettingsPanel() {
             {clearingAiHistory ? "Clearing..." : "Clear AI History"}
           </button>
           {status && (
-            <p className={status.ok ? "settings-status-ok" : "settings-status-error"}>
+            <p role={status.ok ? "status" : "alert"} className={status.ok ? "settings-status-ok" : "settings-status-error"}>
               {status.msg}
             </p>
           )}
@@ -484,7 +482,7 @@ export default function SettingsPanel() {
             {exportingDiagnostics ? "Exporting..." : "Export Diagnostics"}
           </button>
           {status && (
-            <p className={status.ok ? "settings-status-ok" : "settings-status-error"}>{status.msg}</p>
+            <p role={status.ok ? "status" : "alert"} className={status.ok ? "settings-status-ok" : "settings-status-error"}>{status.msg}</p>
           )}
         </section>
       </div>

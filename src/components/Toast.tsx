@@ -45,12 +45,17 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
         {toasts.map((t) => (
           <div
             key={t.id}
+            role={t.type === "error" ? "alert" : "status"}
             style={{
               padding: "10px 16px",
               borderRadius: 6,
               fontSize: 13,
               fontWeight: 500,
-              color: "#fff",
+              color: t.type === "error"
+                ? "var(--on-danger)"
+                : t.type === "success"
+                  ? "var(--on-success)"
+                  : "var(--on-accent)",
               background: t.type === "error"
                 ? "var(--danger-color)"
                 : t.type === "success"

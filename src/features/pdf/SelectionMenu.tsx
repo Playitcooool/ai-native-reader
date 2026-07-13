@@ -193,7 +193,7 @@ export default function SelectionMenu({
           style={{
             padding: "4px 10px",
             background: "var(--accent-color)",
-            color: "#fff",
+            color: "var(--on-accent)",
             border: "none",
             borderRadius: 4,
             fontSize: 12,
@@ -237,7 +237,7 @@ export default function SelectionMenu({
           zIndex: 1000,
           padding: "6px 12px",
           background: "var(--success-color)",
-          color: "#fff",
+          color: "var(--on-success)",
           borderRadius: 6,
           fontSize: 13,
           boxShadow: "0 2px 8px rgba(0,0,0,0.2)",
@@ -280,7 +280,7 @@ export default function SelectionMenu({
         style={{
           padding: "4px 10px",
           background: "var(--accent-color)",
-          color: "#fff",
+          color: "var(--on-accent)",
           border: "none",
           borderRadius: 4,
           fontSize: 12,
@@ -367,7 +367,7 @@ export default function SelectionMenu({
             style={{
               padding: "4px 8px",
               background: "var(--accent-color)",
-              color: "#fff",
+              color: "var(--on-accent)",
               border: "none",
               borderRadius: 4,
               fontSize: 12,

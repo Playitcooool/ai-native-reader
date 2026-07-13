@@ -69,7 +69,7 @@ function TocItem({
           paddingLeft: 12 + depth * 16,
           textAlign: "left",
           background: isActive ? "var(--accent-color)" : "transparent",
-          color: isActive ? "#fff" : "var(--text-primary)",
+          color: isActive ? "var(--on-accent)" : "var(--text-primary)",
           border: "none",
           borderRadius: 3,
           fontSize: 13,

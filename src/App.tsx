@@ -37,6 +37,7 @@ function App() {
   const [readerDrawerTab, setReaderDrawerTab] = useState<SidebarTab>("library");
   const [aiOpen, setAiOpen] = useState(false);
   const [aiInputDraft, setAiInputDraft] = useState<string>();
+  const appShellRef = useRef<HTMLDivElement>(null);
   const returnFocusRef = useRef<HTMLElement | null>(null);
 
   const rememberFocus = () => {
@@ -98,6 +99,13 @@ function App() {
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
+
+  useEffect(() => {
+    const shell = appShellRef.current;
+    if (!shell) return;
+    shell.toggleAttribute("inert", showSettings);
+    return () => shell.removeAttribute("inert");
+  }, [showSettings]);
 
   useEffect(() => {
     const handleUndo = (e: KeyboardEvent) => {
@@ -192,7 +200,11 @@ function App() {
 
   return (
     <ToastProvider>
-      <div className={currentDocument ? `reader-shell${aiOpen ? " ai-open" : ""}` : "app-layout library-shell"}>
+      <div
+        ref={appShellRef}
+        className={currentDocument ? `reader-shell${aiOpen ? " ai-open" : ""}` : "app-layout library-shell"}
+        aria-hidden={showSettings || undefined}
+      >
         {!currentDocument && (
           <div className="sidebar-left">
             <LeftSidebar variant="library" />
@@ -222,8 +234,8 @@ function App() {
             </Suspense>
           </aside>
         )}
-        {showSettings && <SettingsDialog onClose={closeSettings} />}
       </div>
+      {showSettings && <SettingsDialog onClose={closeSettings} />}
     </ToastProvider>
   );
 }

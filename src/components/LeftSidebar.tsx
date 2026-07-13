@@ -378,7 +378,7 @@ export default function LeftSidebar({
                   <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                     <button onClick={handleExportNotes} disabled={isExporting}
                       style={{
-                        padding: "6px 12px", background: "var(--accent-color)", color: "#fff",
+                        padding: "6px 12px", background: "var(--accent-color)", color: "var(--on-accent)",
                         border: "none", borderRadius: 4, fontSize: 12, fontWeight: 500,
                         cursor: "pointer", alignSelf: "flex-start", marginBottom: 4,
                       }}>

@@ -307,7 +307,7 @@
 .library-actions .primary-action,
 .search-bar .primary-action {
   background: var(--accent-color);
-  color: white;
+  color: var(--on-accent);
 }
 
 .library-actions .primary-action:hover,
@@ -468,7 +468,7 @@
   line-height: 1.2;
 }
 
-.settings-detail-pane section[hidden] {
+.settings-detail-pane [hidden] {
   display: none;
 }
 
@@ -520,7 +520,7 @@
 
 .settings-segmented-group button.active {
   background: var(--accent-color);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .settings-provider-section {
@@ -548,7 +548,7 @@
   border: 0;
   border-radius: 6px;
   background: var(--accent-color);
-  color: #fff;
+  color: var(--on-accent);
   font: inherit;
   font-size: 13px;
   font-weight: 600;
@@ -623,24 +623,37 @@
 }
 
 .settings-saved-providers > div {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
   margin-bottom: 6px;
   padding: 8px;
   border-radius: 6px;
   background: var(--bg-tertiary);
-  cursor: pointer;
 }
 
 .settings-saved-providers > div.active {
   background: var(--accent-color);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .settings-provider-model {
   font-size: 12px;
   font-weight: 600;
+}
+
+.settings-provider-choice {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
 }
 
 .settings-provider-url {
@@ -656,7 +669,7 @@
 }
 
 .settings-provider-badges span,
-.settings-provider-badges button {
+.settings-provider-test {
   padding: 2px 6px;
   border-radius: 4px;
   font-size: 10px;
@@ -671,11 +684,10 @@
   background: rgba(255, 255, 255, 0.2);
 }
 
-.settings-provider-badges button {
+.settings-provider-test {
   border: 1px solid currentColor;
   background: transparent;
   color: inherit;
-  font: inherit;
   cursor: pointer;
 }
 
@@ -961,7 +973,7 @@
 .ai-primary-button {
   border-color: var(--accent-color);
   background: var(--accent-color);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .ai-ghost-button,
@@ -1006,7 +1018,7 @@
 
 .ai-summary-tabs button.active {
   background: var(--accent-color);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .ai-icon-button {
@@ -1258,7 +1270,7 @@
   border: 0;
   border-radius: 6px;
   background: var(--accent-color);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .ai-jump-latest {
