@@ -280,6 +280,7 @@ export default function SettingsPanel() {
     ["0", "Reset zoom or text size"],
     ["?", "PDF shortcut help"],
     ["E", "Explain selected text"],
+    ["Cmd/Ctrl+B", "Highlight selection"],
     ["Esc", "Clear selection"],
   ];
   const sections: Array<{ id: typeof section; label: string }> = [

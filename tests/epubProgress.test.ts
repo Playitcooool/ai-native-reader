@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { chapterToPercent, percentToChapter } from "../src/features/epub/epubProgress";
-import { epubCfiKey, locationToPercent, parseEpubCfiAnchor, snapshotFromLocation } from "../src/features/epub/epubAnchors";
+import { epubCfiKey, locationToPercent, parseEpubCfiAnchor, parseSavedEpubLocation, serializeSavedEpubLocation, snapshotFromLocation } from "../src/features/epub/epubAnchors";
 
 describe("epub progress conversion", () => {
   it("converts chapter positions to saved percent", () => {
@@ -41,6 +41,13 @@ describe("epub CFI anchors", () => {
 
   it("builds stable CFI storage keys", () => {
     expect(epubCfiKey("doc-1")).toBe("rustybooks:epub-cfi:doc-1");
+  });
+
+  it("reads legacy CFIs and versioned location snapshots", () => {
+    expect(parseSavedEpubLocation("epubcfi(/6/2)")).toEqual({ version: 1, cfi: "epubcfi(/6/2)" });
+    const stored = serializeSavedEpubLocation({ cfi: "epubcfi(/6/4)", spineIndex: 3, percent: 43, atStart: false, atEnd: false });
+    expect(parseSavedEpubLocation(stored)).toEqual({ version: 1, cfi: "epubcfi(/6/4)", spineIndex: 3, progress: 43 });
+    expect(parseSavedEpubLocation('{"version":2}')).toBeNull();
   });
 
   it("normalizes rendition locations to percent snapshots", () => {

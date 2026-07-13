@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useToast } from "../../components/Toast";
 import { useUndoStore } from "../../stores/undoStore";
+import { createHighlight, HIGHLIGHT_COLORS, saveLastHighlightColor, type HighlightColor } from "../annotations/highlights";
 
 interface SelectionMenuProps {
   selectedText: string;
@@ -14,8 +15,6 @@ interface SelectionMenuProps {
   onAsk?: (text: string) => void;
   onTranslate?: (text: string) => Promise<string | null>;
 }
-
-const highlightColors = ["#fde047", "#86efac", "#93c5fd", "#f0abfc"];
 
 export default function SelectionMenu({
   selectedText,
@@ -61,24 +60,16 @@ export default function SelectionMenu({
     toastSaved.current = setTimeout(() => onClose(), 1500);
   };
 
-  const handleSaveHighlight = async (color: string) => {
+  const handleSaveHighlight = async (color: HighlightColor) => {
     try {
-      const annotation = await invoke<{ id: string }>("create_annotation", {
-        input: {
-          document_id: documentId,
-          page_number: pageNumber,
-          type: "highlight",
-          selected_text: selectedText,
-          note_text: null,
-          color,
-          anchor: anchor ? JSON.stringify(anchor) : null,
-        },
+      await createHighlight({
+        documentId, pageNumber, selectedText, anchor, color,
+        create: (input) => invoke<{ id: string }>("create_annotation", { input }),
+        remove: (annotationId) => invoke("delete_annotation", { annotationId }),
+        pushUndo,
+        refresh: () => window.dispatchEvent(new Event("annotations-changed")),
       });
-      pushUndo({
-        label: "highlight",
-        undo: async () => { await invoke("delete_annotation", { annotationId: annotation.id }); },
-      });
-      window.dispatchEvent(new Event("annotations-changed"));
+      saveLastHighlightColor(color);
       showSaved();
     } catch (err) {
       addToast({ type: "error", message: "Failed to save highlight." });
@@ -301,7 +292,7 @@ export default function SelectionMenu({
         Translate
       </button>
       <div role="group" aria-label="Highlight color" style={{ display: "flex", gap: 3 }}>
-        {highlightColors.map((color) => (
+        {HIGHLIGHT_COLORS.map((color) => (
           <button
             key={color}
             role="menuitem"

@@ -16,8 +16,34 @@ export interface EpubLocationSnapshot {
   atEnd: boolean;
 }
 
+export interface SavedEpubLocation {
+  version: 1;
+  cfi?: string;
+  spineIndex?: number;
+  progress?: number;
+}
+
 export function epubCfiKey(documentId: string): string {
   return `rustybooks:epub-cfi:${documentId}`;
+}
+
+export function parseSavedEpubLocation(value: string | null): SavedEpubLocation | null {
+  if (!value) return null;
+  if (!value.trim().startsWith("{")) return { version: 1, cfi: value };
+  try {
+    const parsed = JSON.parse(value) as Partial<SavedEpubLocation>;
+    if (parsed.version !== 1) return null;
+    const cfi = typeof parsed.cfi === "string" && parsed.cfi ? parsed.cfi : undefined;
+    const spineIndex = typeof parsed.spineIndex === "number" && Number.isInteger(parsed.spineIndex) && parsed.spineIndex >= 0 ? parsed.spineIndex : undefined;
+    const progress = typeof parsed.progress === "number" && Number.isFinite(parsed.progress) ? Math.max(0, Math.min(100, parsed.progress)) : undefined;
+    return cfi || spineIndex !== undefined || progress !== undefined ? { version: 1, cfi, spineIndex, progress } : null;
+  } catch {
+    return null;
+  }
+}
+
+export function serializeSavedEpubLocation(location: EpubLocationSnapshot): string {
+  return JSON.stringify({ version: 1, cfi: location.cfi, spineIndex: location.spineIndex, progress: location.percent } satisfies SavedEpubLocation);
 }
 
 export function parseEpubCfiAnchor(value: string | null): EpubCfiAnchor | null {

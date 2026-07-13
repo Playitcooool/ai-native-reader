@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useDocumentStore } from "../../stores/documentStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useNotesStore } from "../../stores/notesStore";
+import { useUndoStore } from "../../stores/undoStore";
 import { useToast } from "../../components/Toast";
 import { Icon } from "../../components/Icons";
 import SelectionMenu from "../pdf/SelectionMenu";
@@ -13,11 +14,12 @@ import { parseInkAnchor, projectEpubInk, simplifyLocalPoints, type EpubInkAnchor
 import { draftFromSelection } from "../ai/aiPanelHelpers";
 import { isAllowedExternalUrl, openExternalUrl } from "../links/externalLinks";
 import { percentToChapter } from "./epubProgress";
-import { epubCfiKey, parseEpubCfiAnchor, snapshotFromLocation, type EpubCfiAnchor, type EpubLocationSnapshot } from "./epubAnchors";
+import { epubCfiKey, parseEpubCfiAnchor, parseSavedEpubLocation, serializeSavedEpubLocation, snapshotFromLocation, type EpubCfiAnchor, type EpubLocationSnapshot } from "./epubAnchors";
 import { EPUB_BOOK_OPTIONS, epubThemeRules } from "./epubViewerConfig";
 import { autoFontPercentage, epubReadingPreferenceKey, loadEpubReadingPreference, type EpubFontMode } from "./epubReadingPreferences";
 import { displayEpubStart } from "./epubDisplay";
 import { epubTurnForKey, type EpubTurn } from "./epubNavigation";
+import { createHighlight, isHighlightShortcut } from "../annotations/highlights";
 import { EPUB_NAVIGATE_EVENT, type EpubNavigationTarget } from "./epubNavigationTarget";
 import ShortcutsModal from "../../components/ShortcutsModal";
 
@@ -46,6 +48,7 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
   const { currentDocument, currentPage, setCurrentPage, setTotalPages, loadToc, tocNodes, setActiveTocNodeId } = useDocumentStore();
   const annotations = useNotesStore((s) => s.annotations);
   const loadAnnotations = useNotesStore((s) => s.loadAnnotations);
+  const pushUndo = useUndoStore((s) => s.pushUndo);
   const theme = useSettingsStore((s) => s.theme);
   const toggleTheme = useSettingsStore((s) => s.toggleTheme);
   const { addToast } = useToast();
@@ -108,7 +111,7 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
   }, []);
 
   const persistLocation = useCallback((next: EpubLocationSnapshot) => {
-    localStorage.setItem(epubCfiKey(documentId), next.cfi);
+    localStorage.setItem(epubCfiKey(documentId), serializeSavedEpubLocation(next));
     setLocation(next);
     setCurrentPage(Math.max(1, next.percent || 1));
     if (locationDebounceRef.current) clearTimeout(locationDebounceRef.current);
@@ -333,16 +336,14 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
           invoke("update_page_count", { documentId, pageCount: Math.max(1, count) }).catch(() => {});
         }
         applyTheme();
-        const savedCfi = localStorage.getItem(epubCfiKey(documentId));
+        const savedLocation = parseSavedEpubLocation(localStorage.getItem(epubCfiKey(documentId)));
         const fallbackSection = percentToChapter(currentDocument?.last_page ?? 0, Math.max(1, count)) - 1;
-        const restoredSavedCfi = await displayEpubStart(
+        await displayEpubStart(
           (target) => typeof target === "string" ? rendition.display(target) : rendition.display(target),
-          savedCfi,
+          savedLocation?.cfi ?? null,
+          savedLocation?.spineIndex,
           Math.max(0, fallbackSection),
         );
-        if (savedCfi && !restoredSavedCfi && localStorage.getItem(epubCfiKey(documentId)) === savedCfi) {
-          localStorage.removeItem(epubCfiKey(documentId));
-        }
         if (!dead) {
           setLoading(false);
           void book.locations.generate(1600).catch(() => null);
@@ -482,6 +483,20 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented) return;
+      if (isHighlightShortcut(e, Boolean(selectionText && selectionAnchor))) {
+        e.preventDefault();
+        void createHighlight({
+          documentId, pageNumber, selectedText: selectionText, anchor: selectionAnchor,
+          create: (input) => invoke<{ id: string }>("create_annotation", { input }),
+          remove: (annotationId) => invoke("delete_annotation", { annotationId }),
+          pushUndo,
+          refresh: () => window.dispatchEvent(new Event("annotations-changed")),
+        }).then(() => {
+          addToast({ type: "success", message: "Highlight saved." });
+          clearSelection();
+        }).catch(() => addToast({ type: "error", message: "Failed to save highlight." }));
+        return;
+      }
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === "t" || e.key === "T")) {
         e.preventDefault();
         toggleTheme();
@@ -511,7 +526,7 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
     keyHandlerRef.current = handleKey;
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [adjustFont, clearSelection, markSearchText, onOpenAi, readingDirection, resetAutoFont, selectionText, showSearch, toggleTheme, turnPage]);
+  }, [addToast, adjustFont, clearSelection, documentId, markSearchText, onOpenAi, pageNumber, pushUndo, readingDirection, resetAutoFont, selectionAnchor, selectionText, showSearch, toggleTheme, turnPage]);
 
   useEffect(() => {
     const openSearch = (event: KeyboardEvent) => {
@@ -623,7 +638,7 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
           onTranslate={handleTranslate}
         />
       )}
-      {showShortcuts && <ShortcutsModal onClose={() => setShowShortcuts(false)} />}
+      {showShortcuts && <ShortcutsModal epub onClose={() => setShowShortcuts(false)} />}
     </div>
   );
 }

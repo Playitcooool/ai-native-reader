@@ -25,6 +25,8 @@ import { Icon } from "./Icons";
 import { draftFromSelection } from "../features/ai/aiPanelHelpers";
 import type { Annotation } from "../stores/notesStore";
 import { recordDiagnostic } from "../features/diagnostics";
+import { createHighlight, isHighlightShortcut } from "../features/annotations/highlights";
+import { useUndoStore } from "../stores/undoStore";
 
 const EMPTY_ANNOTATIONS: Annotation[] = [];
 
@@ -68,6 +70,7 @@ export default function PdfViewer({ documentId, onBackHome, onOpenLibrary, onOpe
   const defaultPdfZoom = useSettingsStore((s) => s.defaultPdfZoom);
   const pdfRef = useRef<PDFDocumentProxy | null>(null);
   const { addToast } = useToast();
+  const pushUndo = useUndoStore((s) => s.pushUndo);
   const extractionRef = useRef<PageExtractionQueue | null>(null);
   const progScrollRef = useRef(false);
   const scrollPageUpdateRef = useRef<number | null>(null);
@@ -382,6 +385,21 @@ export default function PdfViewer({ documentId, onBackHome, onOpenLibrary, onOpe
   // Keyboard shortcuts
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return;
+      if (isHighlightShortcut(e, Boolean(selectionText && selectionAnchor))) {
+        e.preventDefault();
+        void createHighlight({
+          documentId, pageNumber: selectionAnchor.pageNumber ?? currentPage, selectedText: selectionText, anchor: selectionAnchor,
+          create: (input) => invoke<{ id: string }>("create_annotation", { input }),
+          remove: (annotationId) => invoke("delete_annotation", { annotationId }),
+          pushUndo,
+          refresh: () => window.dispatchEvent(new Event("annotations-changed")),
+        }).then(() => {
+          addToast({ type: "success", message: "Highlight saved." });
+          clearSelection();
+        }).catch(() => addToast({ type: "error", message: "Failed to save highlight." }));
+        return;
+      }
       // Cmd/Ctrl+Shift+T toggles theme
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === "t" || e.key === "T")) {
         e.preventDefault();
@@ -415,7 +433,7 @@ export default function PdfViewer({ documentId, onBackHome, onOpenLibrary, onOpe
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [currentPage, zoom, goToPage, handleSetZoom, clearSelection, selectionText, handleExplain, showShortcuts, toggleTheme]);
+  }, [addToast, currentPage, documentId, zoom, goToPage, handleSetZoom, clearSelection, selectionAnchor, selectionText, handleExplain, pushUndo, showShortcuts, toggleTheme]);
 
   // Debounced zoom persistence
   useEffect(() => {

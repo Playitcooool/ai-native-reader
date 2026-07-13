@@ -7,12 +7,18 @@ describe("EPUB startup display", () => {
       if (typeof target === "string") throw new Error("bad CFI");
     });
 
-    await expect(displayEpubStart(display, "epubcfi(bad)", 3)).resolves.toBe(false);
+    await expect(displayEpubStart(display, "epubcfi(bad)", 3, 1)).resolves.toBe(false);
     expect(display.mock.calls).toEqual([["epubcfi(bad)"], [3]]);
   });
 
   it("times out a display that never resolves", async () => {
     const display = () => new Promise<never>(() => {});
-    await expect(displayEpubStart(display, null, 0, 1)).rejects.toThrow("timed out");
+    await expect(displayEpubStart(display, null, undefined, 0, 1)).rejects.toThrow("timed out");
+  });
+
+  it("tries database progress and section zero after saved fallbacks fail", async () => {
+    const display = vi.fn(async (target: string | number) => { if (target !== 0) throw new Error("bad location"); });
+    await displayEpubStart(display, "epubcfi(bad)", 4, 2);
+    expect(display.mock.calls).toEqual([["epubcfi(bad)"], [4], [2], [0]]);
   });
 });

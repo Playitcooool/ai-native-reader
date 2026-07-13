@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 
 interface ShortcutsModalProps {
   onClose: () => void;
+  epub?: boolean;
 }
 
 const SHORTCUTS = [
@@ -9,6 +10,7 @@ const SHORTCUTS = [
   { key: "PgUp PgDn", desc: "Previous / Next page" },
   { key: "+ − 0", desc: "Zoom in / out / reset" },
   { key: "E", desc: "Explain selection" },
+  { key: "Cmd/Ctrl+B", desc: "Highlight selection" },
   { key: "Esc", desc: "Clear selection" },
   { key: "⌘O", desc: "Open document" },
   { key: "?", desc: "Toggle this help" },

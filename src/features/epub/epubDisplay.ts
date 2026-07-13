@@ -11,7 +11,8 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
 export async function displayEpubStart(
   display: (target: string | number) => Promise<unknown>,
   savedCfi: string | null,
-  fallbackSection: number,
+  savedSection: number | undefined,
+  databaseSection: number,
   timeoutMs = 15_000,
 ): Promise<boolean> {
   if (savedCfi) {
@@ -22,6 +23,15 @@ export async function displayEpubStart(
       // A stale CFI should not prevent the book from opening.
     }
   }
-  await withTimeout(display(fallbackSection), timeoutMs);
-  return false;
+  const fallbacks = [savedSection, databaseSection, 0].filter((value, index, all): value is number => value !== undefined && all.indexOf(value) === index);
+  let lastError: unknown;
+  for (const section of fallbacks) {
+    try {
+      await withTimeout(display(section), timeoutMs);
+      return false;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError;
 }
