@@ -29,6 +29,21 @@ export function isHighlightShortcut(
   return !target?.closest?.("input, textarea, select, button, [contenteditable], [role='dialog'], [aria-label='Text selection actions']");
 }
 
+export function isSearchShortcut(
+  event: Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey" | "altKey" | "shiftKey" | "target">,
+): boolean {
+  if (event.key.toLowerCase() !== "f" || (!event.metaKey && !event.ctrlKey) || event.altKey || event.shiftKey) return false;
+  const target = event.target as Element | null;
+  return !target?.closest?.("input, textarea, select, [contenteditable], [role='dialog'], [aria-label='Text selection actions']");
+}
+
+export function handleSearchShortcut(event: KeyboardEvent, open: () => void): boolean {
+  if (event.defaultPrevented || !isSearchShortcut(event)) return false;
+  event.preventDefault();
+  open();
+  return true;
+}
+
 export async function createHighlight(options: {
   documentId: string;
   pageNumber: number;

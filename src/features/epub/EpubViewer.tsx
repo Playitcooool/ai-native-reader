@@ -19,7 +19,7 @@ import { EPUB_BOOK_OPTIONS, epubThemeRules } from "./epubViewerConfig";
 import { autoFontPercentage, epubReadingPreferenceKey, loadEpubReadingPreference, type EpubFontMode } from "./epubReadingPreferences";
 import { displayEpubStart } from "./epubDisplay";
 import { epubTurnForKey, type EpubTurn } from "./epubNavigation";
-import { createHighlight, isHighlightShortcut } from "../annotations/highlights";
+import { createHighlight, handleSearchShortcut, isHighlightShortcut } from "../annotations/highlights";
 import { EPUB_NAVIGATE_EVENT, type EpubNavigationTarget } from "./epubNavigationTarget";
 import ShortcutsModal from "../../components/ShortcutsModal";
 
@@ -41,6 +41,7 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
   const locationDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const turningRef = useRef(false);
   const keyHandlerRef = useRef<(event: KeyboardEvent) => void>(() => {});
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const preferenceRef = useRef(loadEpubReadingPreference(documentId));
   const baseFontSizeRef = useRef<number | null>(null);
   const fixedLayoutRef = useRef(false);
@@ -267,6 +268,7 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
   }, [addToast]);
 
   const handleWheel = useCallback((event: WheelEvent) => event.preventDefault(), []);
+  const handleContentKey = useCallback((event: KeyboardEvent) => keyHandlerRef.current(event), []);
 
   const attachLinkListeners = useCallback(() => {
     const contentsList = (renditionRef.current?.getContents?.() ?? []) as Contents | Contents[];
@@ -276,17 +278,19 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
       (contents.window.frameElement as HTMLElement | null)?.setAttribute("title", "EPUB book content");
       doc.addEventListener("click", handleLinkClick, true);
       doc.addEventListener("wheel", handleWheel, { passive: false });
+      doc.addEventListener("keydown", handleContentKey, true);
       linkDocumentsRef.current.add(doc);
     }
-  }, [handleLinkClick, handleWheel]);
+  }, [handleContentKey, handleLinkClick, handleWheel]);
 
   const removeLinkListeners = useCallback(() => {
     for (const doc of linkDocumentsRef.current) {
       doc.removeEventListener("click", handleLinkClick, true);
       doc.removeEventListener("wheel", handleWheel);
+      doc.removeEventListener("keydown", handleContentKey, true);
     }
     linkDocumentsRef.current.clear();
-  }, [handleLinkClick, handleWheel]);
+  }, [handleContentKey, handleLinkClick, handleWheel]);
 
   useEffect(() => {
     let dead = false;
@@ -312,7 +316,6 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
         renditionRef.current = rendition;
 
         rendition.on("selected", handleSelected);
-        rendition.on("keydown", (event: KeyboardEvent) => keyHandlerRef.current(event));
         rendition.on("relocated", (loc: unknown) => {
           const snapshot = snapshotFromLocation(loc);
           if (snapshot) persistLocation(snapshot);
@@ -483,6 +486,10 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented) return;
+      if (handleSearchShortcut(e, () => {
+        setShowSearch(true);
+        requestAnimationFrame(() => searchInputRef.current?.focus());
+      })) return;
       if (isHighlightShortcut(e, Boolean(selectionText && selectionAnchor))) {
         e.preventDefault();
         void createHighlight({
@@ -524,17 +531,9 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
       }
     };
     keyHandlerRef.current = handleKey;
-    window.addEventListener("keydown", handleKey);
-    return () => window.removeEventListener("keydown", handleKey);
+    document.addEventListener("keydown", handleKey, true);
+    return () => document.removeEventListener("keydown", handleKey, true);
   }, [addToast, adjustFont, clearSelection, documentId, markSearchText, onOpenAi, pageNumber, pushUndo, readingDirection, resetAutoFont, selectionAnchor, selectionText, showSearch, toggleTheme, turnPage]);
-
-  useEffect(() => {
-    const openSearch = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") { event.preventDefault(); setShowSearch(true); }
-    };
-    window.addEventListener("keydown", openSearch);
-    return () => window.removeEventListener("keydown", openSearch);
-  }, []);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -578,7 +577,7 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
       </div>
 
       {showSearch && <div className="search-bar">
-        <input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void performSearch(); }} placeholder="Search in book…" autoFocus />
+        <input ref={searchInputRef} value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void performSearch(); }} placeholder="Search in book…" autoFocus />
         <button className="primary-action" onClick={() => void performSearch()} disabled={isSearching || !searchQuery.trim()}>{isSearching ? "Searching" : "Search"}</button>
         <span className="search-count">{searchResults.length ? `${searchResultIndex + 1} / ${searchResults.length}` : searchQuery && !isSearching ? "No results" : ""}</span>
         <button className="icon-button" onClick={() => void goToSearchResult(searchResultIndex - 1)} disabled={searchResultIndex <= 0} aria-label="Previous result"><Icon name="prev" /></button>

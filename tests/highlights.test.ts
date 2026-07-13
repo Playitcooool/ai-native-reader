@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createHighlight, HIGHLIGHT_COLORS, isHighlightShortcut, loadLastHighlightColor, saveLastHighlightColor } from "../src/features/annotations/highlights";
+import { createHighlight, handleSearchShortcut, HIGHLIGHT_COLORS, isHighlightShortcut, isSearchShortcut, loadLastHighlightColor, saveLastHighlightColor } from "../src/features/annotations/highlights";
 
 describe("shared highlights", () => {
   const event = (overrides = {}) => ({ key: "b", metaKey: true, ctrlKey: false, altKey: false, shiftKey: false, target: { closest: () => null }, ...overrides }) as KeyboardEvent;
@@ -19,6 +19,23 @@ describe("shared highlights", () => {
     expect(isHighlightShortcut(event({ shiftKey: true }), true)).toBe(false);
     expect(isHighlightShortcut(event(), false)).toBe(false);
     expect(isHighlightShortcut(event({ target: { closest: () => ({}) } }), true)).toBe(false);
+  });
+
+  it("routes search from content and toolbar but not editable fields or dialogs", () => {
+    expect(isSearchShortcut(event({ key: "f" }))).toBe(true);
+    expect(isSearchShortcut(event({ key: "f", metaKey: false, ctrlKey: true }))).toBe(true);
+    expect(isSearchShortcut(event({ key: "f", target: { closest: (selector: string) => selector.includes("input") ? {} : null } }))).toBe(false);
+    expect(isSearchShortcut(event({ key: "f", target: { closest: (selector: string) => selector.includes("dialog") ? {} : null } }))).toBe(false);
+    expect(isSearchShortcut(event({ key: "f", shiftKey: true }))).toBe(false);
+  });
+
+  it("prevents native find and handles a forwarded event once", () => {
+    const open = vi.fn();
+    const shortcut = { ...event({ key: "f" }), defaultPrevented: false, preventDefault: vi.fn(function (this: { defaultPrevented: boolean }) { this.defaultPrevented = true; }) } as unknown as KeyboardEvent;
+    expect(handleSearchShortcut(shortcut, open)).toBe(true);
+    expect(handleSearchShortcut(shortcut, open)).toBe(false);
+    expect(shortcut.preventDefault).toHaveBeenCalledOnce();
+    expect(open).toHaveBeenCalledOnce();
   });
 
   it.each([

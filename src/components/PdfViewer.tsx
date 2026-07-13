@@ -25,7 +25,7 @@ import { Icon } from "./Icons";
 import { draftFromSelection } from "../features/ai/aiPanelHelpers";
 import type { Annotation } from "../stores/notesStore";
 import { recordDiagnostic } from "../features/diagnostics";
-import { createHighlight, isHighlightShortcut } from "../features/annotations/highlights";
+import { createHighlight, handleSearchShortcut, isHighlightShortcut } from "../features/annotations/highlights";
 import { useUndoStore } from "../stores/undoStore";
 
 const EMPTY_ANNOTATIONS: Annotation[] = [];
@@ -386,6 +386,10 @@ export default function PdfViewer({ documentId, onBackHome, onOpenLibrary, onOpe
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented) return;
+      if (handleSearchShortcut(e, () => {
+        setShowSearch(true);
+        requestAnimationFrame(() => searchInputRef.current?.focus());
+      })) return;
       if (isHighlightShortcut(e, Boolean(selectionText && selectionAnchor))) {
         e.preventDefault();
         void createHighlight({
@@ -431,8 +435,8 @@ export default function PdfViewer({ documentId, onBackHome, onOpenLibrary, onOpe
       }
       if (e.key === "?") { setShowShortcuts((p) => !p); }
     };
-    window.addEventListener("keydown", handleKey);
-    return () => window.removeEventListener("keydown", handleKey);
+    document.addEventListener("keydown", handleKey, true);
+    return () => document.removeEventListener("keydown", handleKey, true);
   }, [addToast, currentPage, documentId, zoom, goToPage, handleSetZoom, clearSelection, selectionAnchor, selectionText, handleExplain, pushUndo, showShortcuts, toggleTheme]);
 
   // Debounced zoom persistence
