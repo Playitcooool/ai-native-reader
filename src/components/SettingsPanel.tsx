@@ -58,9 +58,9 @@ export default function SettingsPanel() {
     resetUiPreferences,
   } = useSettingsStore();
   const [section, setSection] = useState<"appearance" | "reading" | "shortcuts" | "provider" | "data" | "advanced">("appearance");
-  const [baseUrl, setBaseUrl] = useState("");
+  const [baseUrl, setBaseUrl] = useState(providerDefaults.openai_compatible.baseUrl);
   const [apiKey, setApiKey] = useState("");
-  const [model, setModel] = useState("");
+  const [model, setModel] = useState(providerDefaults.openai_compatible.model);
   const [providerType, setProviderType] = useState("openai_compatible");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isDefault, setIsDefault] = useState(true);
@@ -116,6 +116,7 @@ export default function SettingsPanel() {
         addSetting(result);
       }
       setEditingId(result.id);
+      setApiKey("");
       setStatus({ ok: true, msg: "Settings saved." });
     } catch (err) {
       setStatus({ ok: false, msg: `Error: ${err}` });
@@ -363,6 +364,7 @@ export default function SettingsPanel() {
           void handleSave();
         }}>
           <h3>AI Provider</h3>
+          <p className="settings-muted">Cloud providers receive the document context needed for each request. Use a local provider to keep that context on this device.</p>
           <label htmlFor="provider-type">Provider Type</label>
           <select id="provider-type"
             value={providerType}
@@ -375,7 +377,7 @@ export default function SettingsPanel() {
           </select>
 
           <label htmlFor="base-url">Base URL</label>
-          <input id="base-url" type="url" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder={defaults.baseUrl} spellCheck={false} />
+          <input id="base-url" type="url" required value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder={defaults.baseUrl} spellCheck={false} />
 
           <label htmlFor="api-key">API Key</label>
           <input
@@ -389,7 +391,7 @@ export default function SettingsPanel() {
           />
 
           <label htmlFor="model">Model</label>
-          <input id="model" value={model} onChange={(e) => setModel(e.target.value)} placeholder={defaults.modelPlaceholder} spellCheck={false} />
+          <input id="model" required value={model} onChange={(e) => setModel(e.target.value)} placeholder={defaults.modelPlaceholder} spellCheck={false} />
 
           <label className="settings-checkbox">
             <input type="checkbox" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} />

@@ -42,6 +42,50 @@ fn api_key_for_update(
     }
 }
 
+fn normalize_provider_settings(
+    mut input: ProviderSettingsInput,
+) -> Result<ProviderSettingsInput, String> {
+    if let Some(id) = &input.id {
+        Uuid::parse_str(id).map_err(|_| "Invalid provider id.".to_string())?;
+    }
+    input.provider_type = input.provider_type.trim().to_string();
+    if !matches!(
+        input.provider_type.as_str(),
+        "openai_compatible" | "anthropic" | "lm_studio" | "ollama"
+    ) {
+        return Err("Unsupported provider type.".into());
+    }
+
+    let base_url = input.base_url.as_deref().unwrap_or_default().trim();
+    if base_url.is_empty() || base_url.len() > 2048 {
+        return Err("Provider base URL is required and must be at most 2048 characters.".into());
+    }
+    let parsed = reqwest::Url::parse(base_url).map_err(|_| "Provider base URL is invalid.")?;
+    if !matches!(parsed.scheme(), "http" | "https")
+        || parsed.host_str().is_none()
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || parsed.query().is_some()
+        || parsed.fragment().is_some()
+    {
+        return Err("Provider base URL must be an HTTP(S) origin or path without credentials, query, or fragment.".into());
+    }
+    input.base_url = Some(base_url.trim_end_matches('/').to_string());
+
+    input.model = input.model.trim().to_string();
+    if input.model.is_empty() || input.model.len() > 256 {
+        return Err("Provider model is required and must be at most 256 characters.".into());
+    }
+    input.api_key = input
+        .api_key
+        .map(|key| key.trim().to_string())
+        .filter(|key| !key.is_empty());
+    if input.api_key.as_ref().is_some_and(|key| key.len() > 8192) {
+        return Err("Provider API key is too long.".into());
+    }
+    Ok(input)
+}
+
 fn backup_database_for_conn(
     conn: &rusqlite::Connection,
     destination_path: &str,
@@ -131,6 +175,7 @@ pub fn save_provider_settings(
     db: State<DbState>,
     input: ProviderSettingsInput,
 ) -> Result<ProviderSettings, String> {
+    let input = normalize_provider_settings(input)?;
     let mut conn = db.0.lock().map_err(|e| e.to_string())?;
     let tx = conn.transaction().map_err(|e| e.to_string())?;
     let now = Utc::now().to_rfc3339();
@@ -255,6 +300,40 @@ mod tests {
             api_key_for_update("p1", None, Some("existing".into())).unwrap(),
             Some("existing".into())
         );
+    }
+
+    #[test]
+    fn validates_and_normalizes_provider_settings() {
+        let input = normalize_provider_settings(ProviderSettingsInput {
+            id: None,
+            provider_type: " ollama ".into(),
+            base_url: Some(" http://localhost:11434/v1/ ".into()),
+            api_key: Some(" ".into()),
+            model: " llama3.1 ".into(),
+            is_default: Some(true),
+            is_translation: Some(false),
+        })
+        .unwrap();
+        assert_eq!(input.base_url.as_deref(), Some("http://localhost:11434/v1"));
+        assert_eq!(input.model, "llama3.1");
+        assert!(input.api_key.is_none());
+
+        for url in [
+            "file:///tmp/model",
+            "https://user:secret@example.com",
+            "https://example.com/v1?key=secret",
+        ] {
+            assert!(normalize_provider_settings(ProviderSettingsInput {
+                id: None,
+                provider_type: "openai_compatible".into(),
+                base_url: Some(url.into()),
+                api_key: None,
+                model: "model".into(),
+                is_default: None,
+                is_translation: None,
+            })
+            .is_err());
+        }
     }
 
     #[test]
