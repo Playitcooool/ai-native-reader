@@ -24,7 +24,7 @@ RustyBooks keeps your documents, library, reading state, notes, and extracted te
 
 ## Release
 
-Development version: **0.2.54**
+Development version: **0.2.58**
 
 Installable builds are published on [GitHub Releases](https://github.com/Playitcooool/ai-native-reader/releases). Maintainers should follow [RELEASING.md](RELEASING.md); local unsigned builds are for testing only.
 
