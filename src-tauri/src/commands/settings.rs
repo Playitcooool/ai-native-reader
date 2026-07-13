@@ -165,8 +165,8 @@ pub fn get_provider_settings(db: State<DbState>) -> Result<Vec<ProviderSettings>
             ))
         })
         .map_err(|e| e.to_string())?
-        .filter_map(|r| r.ok())
-        .collect();
+        .collect::<rusqlite::Result<_>>()
+        .map_err(|e| e.to_string())?;
     Ok(settings)
 }
 

@@ -326,8 +326,8 @@ pub async fn compact_session(
                 Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
             })
             .map_err(|e| e.to_string())?
-            .filter_map(|r| r.ok())
-            .collect();
+            .collect::<rusqlite::Result<_>>()
+            .map_err(|e| e.to_string())?;
 
         (doc_id, msgs)
     };
@@ -503,7 +503,7 @@ pub fn get_reading_state(
         })
         .map_err(|e| e.to_string())?;
 
-    Ok(rows.next().and_then(|r| r.ok()))
+    rows.next().transpose().map_err(|e| e.to_string())
 }
 
 // ---------------------------------------------------------------------------
@@ -536,8 +536,8 @@ pub fn get_citations_for_message(
             }))
         })
         .map_err(|e| e.to_string())?
-        .filter_map(|r| r.ok())
-        .collect();
+        .collect::<rusqlite::Result<_>>()
+        .map_err(|e| e.to_string())?;
 
     Ok(citations)
 }

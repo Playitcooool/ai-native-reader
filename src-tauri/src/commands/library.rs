@@ -96,8 +96,8 @@ fn scan_folder_into_db(
             let result: std::collections::HashSet<String> = stmt
                 .query_map([], |row| row.get::<_, String>(0))
                 .map_err(|e| e.to_string())?
-                .filter_map(|r| r.ok())
-                .collect();
+                .collect::<rusqlite::Result<_>>()
+                .map_err(|e| e.to_string())?;
             result
             // lock released here when conn + stmt drop
         };

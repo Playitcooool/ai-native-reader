@@ -149,8 +149,8 @@ pub fn get_toc_tree(db: State<DbState>, document_id: String) -> Result<Vec<TocNo
             })
         })
         .map_err(|e| e.to_string())?
-        .filter_map(|r| r.ok())
-        .collect();
+        .collect::<rusqlite::Result<_>>()
+        .map_err(|e| e.to_string())?;
 
     Ok(nodes)
 }

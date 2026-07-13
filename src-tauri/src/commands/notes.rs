@@ -116,8 +116,8 @@ pub fn get_annotations(
                 row_to_annotation,
             )
             .map_err(|e| e.to_string())?
-            .filter_map(|r| r.ok())
-            .collect();
+            .collect::<rusqlite::Result<_>>()
+            .map_err(|e| e.to_string())?;
         rows
     } else {
         let mut stmt = conn
@@ -133,8 +133,8 @@ pub fn get_annotations(
                 row_to_annotation,
             )
             .map_err(|e| e.to_string())?
-            .filter_map(|r| r.ok())
-            .collect();
+            .collect::<rusqlite::Result<_>>()
+            .map_err(|e| e.to_string())?;
         rows
     };
 
@@ -162,8 +162,8 @@ pub fn get_annotations_for_page(
             row_to_annotation,
         )
         .map_err(|e| e.to_string())?
-        .filter_map(|r| r.ok())
-        .collect();
+        .collect::<rusqlite::Result<_>>()
+        .map_err(|e| e.to_string())?;
 
     Ok(annotations)
 }
@@ -198,8 +198,8 @@ pub fn get_annotations_for_pages(
     let annotations = stmt
         .query_map(params.as_slice(), row_to_annotation)
         .map_err(|e| e.to_string())?
-        .filter_map(|r| r.ok())
-        .collect();
+        .collect::<rusqlite::Result<_>>()
+        .map_err(|e| e.to_string())?;
 
     Ok(annotations)
 }

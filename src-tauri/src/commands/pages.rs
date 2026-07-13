@@ -108,8 +108,8 @@ pub fn get_pages_text(
             },
         )
         .map_err(|e| e.to_string())?
-        .filter_map(|r| r.ok())
-        .collect();
+        .collect::<rusqlite::Result<_>>()
+        .map_err(|e| e.to_string())?;
 
     Ok(pages)
 }
@@ -145,8 +145,8 @@ pub fn get_pages_text_coverage(
             ))
         })
         .map_err(|e| e.to_string())?
-        .filter_map(|r| r.ok())
-        .collect();
+        .collect::<rusqlite::Result<_>>()
+        .map_err(|e| e.to_string())?;
 
     Ok((start..=end)
         .map(|page_number| {
@@ -207,7 +207,8 @@ pub fn search_pages_text(
         })
         .map_err(|e| e.to_string())?;
 
-    Ok(rows.filter_map(|r| r.ok()).collect())
+    rows.collect::<rusqlite::Result<_>>()
+        .map_err(|e| e.to_string())
 }
 
 fn escape_like(input: String) -> String {

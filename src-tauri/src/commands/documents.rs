@@ -131,8 +131,8 @@ fn get_documents_for_conn(conn: &rusqlite::Connection) -> Result<Vec<Document>, 
             })
         })
         .map_err(|e| e.to_string())?
-        .filter_map(|r| r.ok())
-        .collect();
+        .collect::<rusqlite::Result<_>>()
+        .map_err(|e| e.to_string())?;
 
     Ok(docs)
 }
@@ -171,7 +171,7 @@ pub fn get_document(db: State<DbState>, document_id: String) -> Result<Option<Do
         })
         .map_err(|e| e.to_string())?;
 
-    Ok(rows.next().and_then(|r| r.ok()))
+    rows.next().transpose().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -354,8 +354,8 @@ pub fn get_collections(db: State<DbState>) -> Result<Vec<Collection>, String> {
             })
         })
         .map_err(|e| e.to_string())?
-        .filter_map(|r| r.ok())
-        .collect();
+        .collect::<rusqlite::Result<_>>()
+        .map_err(|e| e.to_string())?;
 
     Ok(collections)
 }
@@ -405,8 +405,8 @@ pub fn get_collection_memberships(db: State<DbState>) -> Result<Vec<DocumentColl
             })
         })
         .map_err(|e| e.to_string())?
-        .filter_map(|r| r.ok())
-        .collect();
+        .collect::<rusqlite::Result<_>>()
+        .map_err(|e| e.to_string())?;
 
     Ok(memberships)
 }
