@@ -1,7 +1,19 @@
 import { describe, expect, it, vi } from "vitest";
-import { createHighlight, handleSearchShortcut, HIGHLIGHT_COLORS, isHighlightShortcut, isSearchShortcut, loadLastHighlightColor, saveLastHighlightColor } from "../src/features/annotations/highlights";
+import { createHighlight, handleSearchShortcut, HIGHLIGHT_COLORS, isHighlightShortcut, isSearchShortcut, loadLastHighlightColor, runOnce, saveLastHighlightColor } from "../src/features/annotations/highlights";
 
 describe("shared highlights", () => {
+  it("runs one selection action at a time and unlocks for retry", async () => {
+    const lock = { current: false };
+    let finish!: () => void;
+    const save = vi.fn(() => new Promise<void>((resolve) => { finish = resolve; }));
+    const first = runOnce(lock, save);
+    await expect(runOnce(lock, save)).resolves.toBe(false);
+    expect(save).toHaveBeenCalledOnce();
+    finish();
+    await expect(first).resolves.toBe(true);
+    await expect(runOnce(lock, async () => { throw new Error("save failed"); })).rejects.toThrow("save failed");
+    await expect(runOnce(lock, async () => {})).resolves.toBe(true);
+  });
   const event = (overrides = {}) => ({ key: "b", metaKey: true, ctrlKey: false, altKey: false, shiftKey: false, target: { closest: () => null }, ...overrides }) as KeyboardEvent;
 
   it("loads yellow by default, persists supported colors, and rejects invalid values", () => {

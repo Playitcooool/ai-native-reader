@@ -222,6 +222,19 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
     }
   }, [annotations, location?.href, theme]);
 
+  const paintAnnotation = useCallback((annotation: Annotation) => {
+    const rendition = renditionRef.current;
+    const anchor = parseEpubCfiAnchor(annotation.anchor_json);
+    if (!rendition || !anchor || annotation.type !== "highlight") return;
+    const item = { id: annotation.id, cfi: anchor.cfiRange, type: "highlight" as const, signature: `${anchor.cfiRange}:highlight:${annotation.color}:${theme}` };
+    try {
+      rendition.annotations.highlight(item.cfi, { id: item.id }, undefined, "rustybooks-epub-highlight", {
+        fill: annotation.color || "#fde047", "fill-opacity": "0.36", "mix-blend-mode": theme === "dark" ? "screen" : "multiply",
+      });
+      renderedAnnotationsRef.current.set(item.id, item);
+    } catch { /* malformed CFI */ }
+  }, [theme]);
+
   const makeEpubInkAnchor = useCallback((points: InkPoint[], width: number): InkAnchor | null => {
     const contentsList = (renditionRef.current?.getContents?.() ?? []) as Contents | Contents[];
     const contents = (Array.isArray(contentsList) ? contentsList : [contentsList])[0];
@@ -679,6 +692,8 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
             clearSelection();
           }}
           onTranslate={handleTranslate}
+          preserveSelection
+          onAnnotationCreated={paintAnnotation}
         />
       )}
       {showShortcuts && <ShortcutsModal epub onClose={() => setShowShortcuts(false)} />}

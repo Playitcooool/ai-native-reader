@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useToast } from "../../components/Toast";
 import { useUndoStore } from "../../stores/undoStore";
-import { createHighlight, HIGHLIGHT_COLORS, saveLastHighlightColor, type HighlightColor } from "../annotations/highlights";
+import { createHighlight, HIGHLIGHT_COLORS, runOnce, saveLastHighlightColor, type HighlightColor } from "../annotations/highlights";
 import { useNotesStore, type Annotation } from "../../stores/notesStore";
 
 interface SelectionMenuProps {
@@ -15,6 +15,8 @@ interface SelectionMenuProps {
   onExplain: () => void;
   onAsk?: (text: string) => void;
   onTranslate?: (text: string) => Promise<string | null>;
+  preserveSelection?: boolean;
+  onAnnotationCreated?: (annotation: Annotation) => void;
 }
 
 export default function SelectionMenu({
@@ -27,9 +29,13 @@ export default function SelectionMenu({
   onExplain,
   onAsk,
   onTranslate,
+  preserveSelection = false,
+  onAnnotationCreated,
 }: SelectionMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
   const [noteText, setNoteText] = useState("");
   const [translating, setTranslating] = useState(false);
   const [translationResult, setTranslationResult] = useState<string | null>(null);
@@ -73,20 +79,28 @@ export default function SelectionMenu({
   };
 
   const handleSaveHighlight = async (color: HighlightColor) => {
-    try {
-      await createHighlight({
-        documentId, pageNumber, selectedText, anchor, color,
-        create: (input) => invoke<Annotation>("create_annotation", { input }),
-        created: (annotation) => addAnnotation(annotation as Annotation),
-        remove: (annotationId) => invoke("delete_annotation", { annotationId }),
-        pushUndo,
-        refresh: () => window.dispatchEvent(new Event("annotations-changed")),
-      });
-      saveLastHighlightColor(color);
-      showSaved();
-    } catch (err) {
-      addToast({ type: "error", message: "Failed to save highlight." });
-    }
+    void runOnce(savingRef, async () => {
+      setSaving(true);
+      try {
+        await createHighlight({
+          documentId, pageNumber, selectedText, anchor, color,
+          create: (input) => invoke<Annotation>("create_annotation", { input }),
+          created: (annotation) => {
+            addAnnotation(annotation as Annotation);
+            onAnnotationCreated?.(annotation as Annotation);
+          },
+          remove: (annotationId) => invoke("delete_annotation", { annotationId }),
+          pushUndo,
+          refresh: () => window.dispatchEvent(new Event("annotations-changed")),
+        });
+        saveLastHighlightColor(color);
+        showSaved();
+      } catch (err) {
+        addToast({ type: "error", message: "Failed to save highlight." });
+      } finally {
+        setSaving(false);
+      }
+    });
   };
 
   const handleSaveNote = async () => {
@@ -255,6 +269,8 @@ export default function SelectionMenu({
       role="menu"
       aria-label="Text selection actions"
       onKeyDown={handleMenuKey}
+      onPointerDown={preserveSelection ? (event) => event.stopPropagation() : undefined}
+      onMouseDown={preserveSelection ? (event) => event.stopPropagation() : undefined}
       style={menuStyle}
     >
       <button
@@ -314,6 +330,8 @@ export default function SelectionMenu({
             title="Highlight"
             onMouseDown={keepPdfSelection}
             onClick={() => handleSaveHighlight(color)}
+            disabled={saving}
+            aria-busy={saving}
             style={{
               width: 22,
               height: 22,

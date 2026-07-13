@@ -44,6 +44,13 @@ export function handleSearchShortcut(event: KeyboardEvent, open: () => void): bo
   return true;
 }
 
+export async function runOnce(lock: { current: boolean }, action: () => Promise<void>): Promise<boolean> {
+  if (lock.current) return false;
+  lock.current = true;
+  try { await action(); return true; }
+  finally { lock.current = false; }
+}
+
 export async function createHighlight(options: {
   documentId: string;
   pageNumber: number;
