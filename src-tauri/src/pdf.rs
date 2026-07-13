@@ -1,39 +1,40 @@
-/// Extract title and author from a PDF file's document info dictionary.
-/// Returns (title, author) where each is None if not found.
+/// Extract title and author from a PDF without loading the full document.
 pub fn extract_metadata(file_path: &str) -> (Option<String>, Option<String>) {
-    let doc = match lopdf::Document::load(file_path) {
-        Ok(d) => d,
-        Err(_) => return (None, None),
-    };
+    lopdf::Document::load_metadata(file_path)
+        .map(|metadata| {
+            (
+                metadata.title.filter(|value| !value.is_empty()),
+                metadata.author.filter(|value| !value.is_empty()),
+            )
+        })
+        .unwrap_or_default()
+}
 
-    // Resolve the Info dict — try as a reference first, then inline
-    let info: Option<&lopdf::Dictionary> = doc
-        .trailer
-        .get(b"Info")
-        .ok()
-        .and_then(|v| v.as_reference().ok())
-        .and_then(|(id, gen)| doc.get_object((id, gen)).ok())
-        .and_then(|o| o.as_dict().ok())
-        .or_else(|| doc.trailer.get(b"Info").ok()?.as_dict().ok());
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lopdf::{dictionary, Document, Object};
 
-    let dict = match info {
-        Some(d) => d,
-        None => return (None, None),
-    };
+    #[test]
+    fn reads_pdf_metadata_without_loading_pages() {
+        let path = std::env::temp_dir().join(format!(
+            "rustybooks-pdf-metadata-{}.pdf",
+            uuid::Uuid::new_v4()
+        ));
+        let mut document = Document::with_version("1.7");
+        let info = document.add_object(dictionary! {
+            "Title" => Object::string_literal("Release test"),
+            "Author" => Object::string_literal("RustyBooks"),
+        });
+        document.trailer.set("Info", info);
+        document.save(&path).unwrap();
 
-    let title = dict
-        .get(b"Title")
-        .ok()
-        .and_then(|v| v.as_str().ok())
-        .map(|s| String::from_utf8_lossy(s).into_owned())
-        .filter(|s| !s.is_empty());
+        let metadata = extract_metadata(path.to_str().unwrap());
+        std::fs::remove_file(path).unwrap();
 
-    let author = dict
-        .get(b"Author")
-        .ok()
-        .and_then(|v| v.as_str().ok())
-        .map(|s| String::from_utf8_lossy(s).into_owned())
-        .filter(|s| !s.is_empty());
-
-    (title, author)
+        assert_eq!(
+            metadata,
+            (Some("Release test".into()), Some("RustyBooks".into()))
+        );
+    }
 }

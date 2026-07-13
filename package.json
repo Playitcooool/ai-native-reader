@@ -30,6 +30,11 @@
     "remark-math": "^6.0.0",
     "zustand": "^4.5.0"
   },
+  "overrides": {
+    "epubjs": {
+      "@xmldom/xmldom": "0.8.13"
+    }
+  },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0",
     "@types/react": "^18.3.0",
