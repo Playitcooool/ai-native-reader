@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useToast } from "../../components/Toast";
 import { useUndoStore } from "../../stores/undoStore";
 import { createHighlight, HIGHLIGHT_COLORS, saveLastHighlightColor, type HighlightColor } from "../annotations/highlights";
+import { useNotesStore, type Annotation } from "../../stores/notesStore";
 
 interface SelectionMenuProps {
   selectedText: string;
@@ -34,6 +35,17 @@ export default function SelectionMenu({
   const [translationResult, setTranslationResult] = useState<string | null>(null);
   const { addToast } = useToast();
   const pushUndo = useUndoStore((s) => s.pushUndo);
+  const addAnnotation = useNotesStore((s) => s.addAnnotation);
+  const [clampedPosition, setClampedPosition] = useState(position);
+
+  useLayoutEffect(() => {
+    const rect = menuRef.current?.getBoundingClientRect();
+    if (!rect || !position) return;
+    setClampedPosition({
+      x: Math.max(8, Math.min(position.x, window.innerWidth - rect.width - 8)),
+      y: Math.max(rect.height + 8, Math.min(position.y, window.innerHeight - 8)),
+    });
+  }, [position, noteText, translationResult]);
 
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
@@ -64,7 +76,8 @@ export default function SelectionMenu({
     try {
       await createHighlight({
         documentId, pageNumber, selectedText, anchor, color,
-        create: (input) => invoke<{ id: string }>("create_annotation", { input }),
+        create: (input) => invoke<Annotation>("create_annotation", { input }),
+        created: (annotation) => addAnnotation(annotation as Annotation),
         remove: (annotationId) => invoke("delete_annotation", { annotationId }),
         pushUndo,
         refresh: () => window.dispatchEvent(new Event("annotations-changed")),
@@ -79,7 +92,7 @@ export default function SelectionMenu({
   const handleSaveNote = async () => {
     if (!noteText.trim()) return;
     try {
-      const annotation = await invoke<{ id: string }>("create_annotation", {
+      const annotation = await invoke<Annotation>("create_annotation", {
         input: {
           document_id: documentId,
           page_number: pageNumber,
@@ -89,6 +102,7 @@ export default function SelectionMenu({
           anchor: anchor ? JSON.stringify(anchor) : null,
         },
       });
+      addAnnotation(annotation);
       pushUndo({
         label: "note",
         undo: async () => { await invoke("delete_annotation", { annotationId: annotation.id }); },
@@ -121,8 +135,8 @@ export default function SelectionMenu({
   // Style helpers
   const menuStyle: React.CSSProperties = {
     position: "fixed",
-    top: Math.max(8, (position?.y ?? 0) - 48),
-    left: Math.max(8, (position?.x ?? 0)),
+    top: Math.max(8, (clampedPosition?.y ?? 0) - 48),
+    left: Math.max(8, (clampedPosition?.x ?? 0)),
     zIndex: 1000,
     display: "flex",
     gap: 4,
@@ -144,8 +158,8 @@ export default function SelectionMenu({
         aria-label="Translation"
         style={{
           position: "fixed",
-          top: Math.max(8, (position?.y ?? 0) + 16),
-          left: Math.max(8, (position?.x ?? 0)),
+          top: Math.max(8, (clampedPosition?.y ?? 0) + 16),
+          left: Math.max(8, (clampedPosition?.x ?? 0)),
           zIndex: 1000,
           maxWidth: 500,
           padding: "10px 14px",
@@ -204,8 +218,8 @@ export default function SelectionMenu({
         aria-live="polite"
         style={{
           position: "fixed",
-          top: Math.max(8, (position?.y ?? 0) - 60),
-          left: Math.max(8, (position?.x ?? 0)),
+          top: Math.max(8, (clampedPosition?.y ?? 0) - 60),
+          left: Math.max(8, (clampedPosition?.x ?? 0)),
           zIndex: 1000,
           padding: "6px 12px",
           background: "var(--success-color)",

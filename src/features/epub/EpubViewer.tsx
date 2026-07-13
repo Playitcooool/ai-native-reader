@@ -22,6 +22,8 @@ import { epubTurnForKey, type EpubTurn } from "./epubNavigation";
 import { createHighlight, handleSearchShortcut, isHighlightShortcut } from "../annotations/highlights";
 import { EPUB_NAVIGATE_EVENT, type EpubNavigationTarget } from "./epubNavigationTarget";
 import ShortcutsModal from "../../components/ShortcutsModal";
+import { annotationChanges, clearSearchMarks, directionalGestureTurn, markSearchMatches, selectionAnchorFromContents } from "./epubInteractions";
+import type { Annotation } from "../../stores/notesStore";
 
 interface EpubViewerProps {
   documentId: string;
@@ -31,17 +33,28 @@ interface EpubViewerProps {
   onOpenAi?: (draft?: string) => void;
 }
 
-type RenderedAnnotation = { cfi: string; type: "highlight" | "underline" };
+type RenderedAnnotation = { id: string; cfi: string; type: "highlight" | "underline"; signature: string };
 
 export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOpenContents, onOpenAi }: EpubViewerProps) {
   const frameRef = useRef<HTMLDivElement | null>(null);
   const bookRef = useRef<Book | null>(null);
   const renditionRef = useRef<Rendition | null>(null);
-  const renderedAnnotationsRef = useRef<RenderedAnnotation[]>([]);
+  const renderedAnnotationsRef = useRef<Map<string, RenderedAnnotation>>(new Map());
   const locationDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const turningRef = useRef(false);
   const keyHandlerRef = useRef<(event: KeyboardEvent) => void>(() => {});
+  const renditionHandlersRef = useRef({ selected: (_cfi: string, _contents: Contents) => {}, relocated: (_location: unknown) => {}, rendered: () => {} });
+  const contentActionsRef = useRef({ click: (_event: MouseEvent) => {}, wheel: (_event: WheelEvent) => {}, keydown: (_event: KeyboardEvent) => {} });
+  const contentHandlersRef = useRef({
+    click: (event: MouseEvent) => contentActionsRef.current.click(event),
+    wheel: (event: WheelEvent) => contentActionsRef.current.wheel(event),
+    keydown: (event: KeyboardEvent) => contentActionsRef.current.keydown(event),
+  });
+  const wheelRef = useRef({ x: 0, y: 0, last: 0 });
+  const touchRef = useRef<{ x: number; y: number } | null>(null);
+  const searchRunRef = useRef(0);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const searchToggleRef = useRef<HTMLButtonElement>(null);
   const preferenceRef = useRef(loadEpubReadingPreference(documentId));
   const baseFontSizeRef = useRef<number | null>(null);
   const fixedLayoutRef = useRef(false);
@@ -49,6 +62,7 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
   const { currentDocument, currentPage, setCurrentPage, setTotalPages, loadToc, tocNodes, setActiveTocNodeId } = useDocumentStore();
   const annotations = useNotesStore((s) => s.annotations);
   const loadAnnotations = useNotesStore((s) => s.loadAnnotations);
+  const addAnnotation = useNotesStore((s) => s.addAnnotation);
   const pushUndo = useUndoStore((s) => s.pushUndo);
   const theme = useSettingsStore((s) => s.theme);
   const toggleTheme = useSettingsStore((s) => s.toggleTheme);
@@ -127,6 +141,7 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
     const themes = rendition.themes as typeof rendition.themes & { removeOverride(name: string): void };
     themes.register("rustybooks", epubThemeRules(fixedLayoutRef.current));
     themes.select("rustybooks");
+    if (fixedLayoutRef.current) return;
     if (fontSize === 100) themes.removeOverride("font-size");
     else themes.fontSize(`${fontSize}%`);
     themes.override("font-family", fontFamily === "book" ? "initial" : fontFamily === "serif" ? "Georgia, serif" : "Arial, sans-serif");
@@ -149,29 +164,35 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
   const renderStoredAnnotations = useCallback(() => {
     const rendition = renditionRef.current;
     if (!rendition) return;
-    for (const item of renderedAnnotationsRef.current) {
-      rendition.annotations.remove(item.cfi, item.type);
-    }
-    renderedAnnotationsRef.current = [];
-
+    const wanted = new Map<string, RenderedAnnotation>();
     for (const annotation of annotations) {
       if (annotation.type !== "highlight" && annotation.type !== "note") continue;
       const anchor = parseEpubCfiAnchor(annotation.anchor_json);
       if (!anchor) continue;
-      if (annotation.type === "note") {
-        rendition.annotations.underline(anchor.cfiRange, { id: annotation.id }, undefined, "rustybooks-epub-note", {
-          stroke: annotation.color || "#f97316",
-          "stroke-width": "2px",
-          "stroke-opacity": "0.85",
-        });
-        renderedAnnotationsRef.current.push({ cfi: anchor.cfiRange, type: "underline" });
-      } else {
-        rendition.annotations.highlight(anchor.cfiRange, { id: annotation.id }, undefined, "rustybooks-epub-highlight", {
-          fill: annotation.color || "#fde047",
-          "fill-opacity": "0.36",
-          "mix-blend-mode": theme === "dark" ? "screen" : "multiply",
-        });
-        renderedAnnotationsRef.current.push({ cfi: anchor.cfiRange, type: "highlight" });
+      const type = annotation.type === "note" ? "underline" : "highlight";
+      wanted.set(annotation.id, { id: annotation.id, cfi: anchor.cfiRange, type, signature: `${anchor.cfiRange}:${type}:${annotation.color}:${theme}` });
+    }
+    const changes = annotationChanges([...renderedAnnotationsRef.current.values()], [...wanted.values()]);
+    for (const item of changes.remove) {
+      try { rendition.annotations.remove(item.cfi, item.type); } catch { /* malformed legacy CFI */ }
+      renderedAnnotationsRef.current.delete(item.id);
+    }
+    for (const item of changes.add) {
+      const id = item.id;
+      const annotation = annotations.find((candidate) => candidate.id === id)!;
+      try {
+        if (item.type === "underline") {
+          rendition.annotations.underline(item.cfi, { id }, undefined, "rustybooks-epub-note", {
+            stroke: annotation.color || "#f97316", "stroke-width": "2px", "stroke-opacity": "0.85",
+          });
+        } else {
+          rendition.annotations.highlight(item.cfi, { id }, undefined, "rustybooks-epub-highlight", {
+            fill: annotation.color || "#fde047", "fill-opacity": "0.36", "mix-blend-mode": theme === "dark" ? "screen" : "multiply",
+          });
+        }
+        renderedAnnotationsRef.current.set(id, item);
+      } catch {
+        // One corrupt legacy anchor must not hide valid annotations.
       }
     }
 
@@ -226,23 +247,15 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
     const frameElement = contents.window.frameElement as HTMLElement | null;
     const frameRect = frameElement?.getBoundingClientRect();
     setSelectionText(text);
-    setSelectionAnchor({
-      version: 1,
-      space: "epub-cfi",
-      cfiRange,
-      selectedText: text,
-      href: location?.href,
-      spineIndex: location?.spineIndex,
-    });
+    setSelectionAnchor(selectionAnchorFromContents(cfiRange, text, contents));
     setSelectionPos(frameRect
       ? { x: frameRect.left + rect.left + rect.width / 2, y: frameRect.top + rect.top }
       : { x: rect.left + rect.width / 2, y: rect.top });
-  }, [location?.href, location?.spineIndex]);
+  }, []);
 
   const turnPage = useCallback((direction: EpubTurn) => {
     const rendition = renditionRef.current;
     if (!rendition || turningRef.current) return;
-    clearSelection();
     turningRef.current = true;
     setTurning(true);
     Promise.resolve().then(() => direction === "previous" ? rendition.prev() : rendition.next())
@@ -251,7 +264,7 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
         turningRef.current = false;
         setTurning(false);
       });
-  }, [clearSelection]);
+  }, []);
 
   const goPrevious = useCallback(() => turnPage("previous"), [turnPage]);
   const goNext = useCallback(() => turnPage("next"), [turnPage]);
@@ -267,7 +280,19 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
     openExternalUrl(anchor.href).catch(() => addToast({ type: "error", message: "Could not open link." }));
   }, [addToast]);
 
-  const handleWheel = useCallback((event: WheelEvent) => event.preventDefault(), []);
+  const handleWheel = useCallback((event: WheelEvent) => {
+    event.preventDefault();
+    const now = performance.now();
+    if (now - wheelRef.current.last > 180) wheelRef.current = { x: 0, y: 0, last: now };
+    wheelRef.current.x += event.deltaX;
+    wheelRef.current.y += event.deltaY;
+    wheelRef.current.last = now;
+    const turn = directionalGestureTurn(wheelRef.current.x, wheelRef.current.y, readingDirection);
+    if (turn) {
+      wheelRef.current = { x: 0, y: 0, last: now };
+      turnPage(turn);
+    }
+  }, [readingDirection, turnPage]);
   const handleContentKey = useCallback((event: KeyboardEvent) => keyHandlerRef.current(event), []);
 
   const attachLinkListeners = useCallback(() => {
@@ -276,21 +301,36 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
       const doc = contents.document;
       if (linkDocumentsRef.current.has(doc)) continue;
       (contents.window.frameElement as HTMLElement | null)?.setAttribute("title", "EPUB book content");
-      doc.addEventListener("click", handleLinkClick, true);
-      doc.addEventListener("wheel", handleWheel, { passive: false });
-      doc.addEventListener("keydown", handleContentKey, true);
+      doc.addEventListener("click", contentHandlersRef.current.click, true);
+      doc.addEventListener("wheel", contentHandlersRef.current.wheel, { passive: false });
+      doc.addEventListener("keydown", contentHandlersRef.current.keydown, true);
       linkDocumentsRef.current.add(doc);
     }
-  }, [handleContentKey, handleLinkClick, handleWheel]);
+  }, []);
 
   const removeLinkListeners = useCallback(() => {
     for (const doc of linkDocumentsRef.current) {
-      doc.removeEventListener("click", handleLinkClick, true);
-      doc.removeEventListener("wheel", handleWheel);
-      doc.removeEventListener("keydown", handleContentKey, true);
+      doc.removeEventListener("click", contentHandlersRef.current.click, true);
+      doc.removeEventListener("wheel", contentHandlersRef.current.wheel);
+      doc.removeEventListener("keydown", contentHandlersRef.current.keydown, true);
     }
     linkDocumentsRef.current.clear();
-  }, [handleContentKey, handleLinkClick, handleWheel]);
+  }, []);
+
+  contentActionsRef.current.click = handleLinkClick;
+  contentActionsRef.current.wheel = handleWheel;
+  contentActionsRef.current.keydown = handleContentKey;
+  renditionHandlersRef.current.selected = handleSelected;
+  renditionHandlersRef.current.relocated = (next) => {
+    const snapshot = snapshotFromLocation(next);
+    if (snapshot) persistLocation(snapshot);
+  };
+  renditionHandlersRef.current.rendered = () => {
+    applyTheme();
+    requestAnimationFrame(recalculateAutoFont);
+    renderStoredAnnotations();
+    attachLinkListeners();
+  };
 
   useEffect(() => {
     let dead = false;
@@ -315,20 +355,14 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
         bookRef.current = book;
         renditionRef.current = rendition;
 
-        rendition.on("selected", handleSelected);
-        rendition.on("relocated", (loc: unknown) => {
-          const snapshot = snapshotFromLocation(loc);
-          if (snapshot) persistLocation(snapshot);
-        });
-        rendition.on("rendered", () => {
-          applyTheme();
-          requestAnimationFrame(recalculateAutoFont);
-          renderStoredAnnotations();
-          attachLinkListeners();
-        });
+        rendition.on("selected", (cfi: string, contents: Contents) => renditionHandlersRef.current.selected(cfi, contents));
+        rendition.on("relocated", (next: unknown) => renditionHandlersRef.current.relocated(next));
+        rendition.on("rendered", () => renditionHandlersRef.current.rendered());
 
         await book.ready;
-        setReadingDirection((book.packaging.metadata as { direction?: string }).direction === "rtl" ? "rtl" : "ltr");
+        const direction = (book.packaging.metadata as { direction?: string }).direction === "rtl" ? "rtl" : "ltr";
+        setReadingDirection(direction);
+        rendition.direction(direction);
         fixedLayoutRef.current = book.packaging.metadata.layout === "pre-paginated"
           || (book as Book & { displayOptions?: { fixedLayout?: string } }).displayOptions?.fixedLayout === "true";
         let count = 0;
@@ -363,7 +397,7 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
       dead = true;
       if (locationDebounceRef.current) clearTimeout(locationDebounceRef.current);
       removeLinkListeners();
-      renderedAnnotationsRef.current = [];
+      renderedAnnotationsRef.current.clear();
       renditionRef.current?.destroy();
       bookRef.current?.destroy();
       renditionRef.current = null;
@@ -414,23 +448,18 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
   const markSearchText = useCallback((query: string) => {
     const contentsList = (renditionRef.current?.getContents?.() ?? []) as Contents | Contents[];
     for (const contents of Array.isArray(contentsList) ? contentsList : [contentsList]) {
-      contents.document.querySelectorAll("mark[data-rustybooks-search]").forEach((mark) => mark.replaceWith(...mark.childNodes));
-      if (!query) continue;
-      const walker = contents.document.createTreeWalker(contents.document.body, NodeFilter.SHOW_TEXT);
-      let node: Node | null;
-      while ((node = walker.nextNode())) {
-        const index = node.textContent?.toLocaleLowerCase().indexOf(query.toLocaleLowerCase()) ?? -1;
-        if (index < 0 || !node.parentElement || node.parentElement.closest("script, style")) continue;
-        const range = contents.document.createRange();
-        range.setStart(node, index); range.setEnd(node, index + query.length);
-        const mark = contents.document.createElement("mark");
-        mark.dataset.rustybooksSearch = "true";
-        range.surroundContents(mark);
-        mark.scrollIntoView({ block: "center" });
-        break;
-      }
+      const marks = query ? markSearchMatches(contents.document, query) : (clearSearchMarks(contents.document), []);
+      marks[0]?.scrollIntoView({ block: "center" });
     }
   }, []);
+
+  const closeSearch = useCallback(() => {
+    searchRunRef.current++;
+    setIsSearching(false);
+    setShowSearch(false);
+    markSearchText("");
+    requestAnimationFrame(() => searchToggleRef.current?.focus());
+  }, [markSearchText]);
 
   const goToSearchResult = useCallback(async (index: number) => {
     const result = searchResults[index];
@@ -442,16 +471,18 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
 
   const performSearch = useCallback(async () => {
     if (!searchQuery.trim()) { setSearchResults([]); return; }
+    const run = ++searchRunRef.current;
     setIsSearching(true);
     try {
       const results = await invoke<Array<{ pageNum: number; context: string }>>("search_pages_text", { documentId, query: searchQuery, limit: 200 });
+      if (run !== searchRunRef.current) return;
       setSearchResults(results); setSearchResultIndex(0);
       if (results.length) {
         await renditionRef.current?.display(Math.max(0, results[0].pageNum - 1));
         requestAnimationFrame(() => markSearchText(searchQuery));
       }
     } catch { addToast({ type: "error", message: "EPUB search failed." }); }
-    finally { setIsSearching(false); }
+    finally { if (run === searchRunRef.current) setIsSearching(false); }
   }, [addToast, documentId, markSearchText, searchQuery]);
 
   const adjustFont = useCallback((delta: number) => {
@@ -494,7 +525,8 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
         e.preventDefault();
         void createHighlight({
           documentId, pageNumber, selectedText: selectionText, anchor: selectionAnchor,
-          create: (input) => invoke<{ id: string }>("create_annotation", { input }),
+          create: (input) => invoke<Annotation>("create_annotation", { input }),
+          created: (annotation) => addAnnotation(annotation as Annotation),
           remove: (annotationId) => invoke("delete_annotation", { annotationId }),
           pushUndo,
           refresh: () => window.dispatchEvent(new Event("annotations-changed")),
@@ -513,7 +545,7 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
       const target = e.target as { closest?: (selector: string) => Element | null } | null;
       if (target?.closest?.("input, textarea, select, button, a, [contenteditable]")) return;
       if (e.key === "Escape") {
-        if (showSearch) { setShowSearch(false); markSearchText(""); }
+        if (showSearch) closeSearch();
         setShowShortcuts(false);
         clearSelection();
         setInkToolState((state) => ({ ...state, activeTool: "none" }));
@@ -533,7 +565,7 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
     keyHandlerRef.current = handleKey;
     document.addEventListener("keydown", handleKey, true);
     return () => document.removeEventListener("keydown", handleKey, true);
-  }, [addToast, adjustFont, clearSelection, documentId, markSearchText, onOpenAi, pageNumber, pushUndo, readingDirection, resetAutoFont, selectionAnchor, selectionText, showSearch, toggleTheme, turnPage]);
+  }, [addAnnotation, addToast, adjustFont, clearSelection, closeSearch, documentId, onOpenAi, pageNumber, pushUndo, readingDirection, resetAutoFont, selectionAnchor, selectionText, showSearch, toggleTheme, turnPage]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -562,7 +594,7 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
         <button className="icon-button" onClick={toggleTheme} title="Switch theme (Cmd+Shift+T)" aria-label="Toggle theme">
           <Icon name={theme === "light" ? "moon" : "sun"} />
         </button>
-        <button className={`icon-button ${showSearch ? "active" : ""}`} onClick={() => setShowSearch((value) => !value)} title="Search (Ctrl+F)" aria-label="Toggle search"><Icon name="search" /></button>
+        <button ref={searchToggleRef} className={`icon-button ${showSearch ? "active" : ""}`} onClick={() => showSearch ? closeSearch() : (setShowSearch(true), requestAnimationFrame(() => searchInputRef.current?.focus()))} title="Search (Ctrl+F)" aria-label="Toggle search"><Icon name="search" /></button>
         <InkToolbarControls value={inkToolState} onChange={setInkToolState} />
         <span className="toolbar-center">
           <button className="toolbar-text-button" onClick={onOpenContents} aria-label="Open contents"><Icon name="contents" />Contents</button>
@@ -582,7 +614,7 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
         <span className="search-count">{searchResults.length ? `${searchResultIndex + 1} / ${searchResults.length}` : searchQuery && !isSearching ? "No results" : ""}</span>
         <button className="icon-button" onClick={() => void goToSearchResult(searchResultIndex - 1)} disabled={searchResultIndex <= 0} aria-label="Previous result"><Icon name="prev" /></button>
         <button className="icon-button" onClick={() => void goToSearchResult(searchResultIndex + 1)} disabled={searchResultIndex >= searchResults.length - 1} aria-label="Next result"><Icon name="next" /></button>
-        <button className="icon-button" onClick={() => { setShowSearch(false); markSearchText(""); }} aria-label="Close search"><Icon name="close" /></button>
+        <button className="icon-button" onClick={closeSearch} aria-label="Close search"><Icon name="close" /></button>
       </div>}
       {showAppearance && <div className="epub-appearance" role="dialog" aria-label="Reading appearance">
         <label>Font<select value={fontFamily} onChange={(event) => setFontFamily(event.target.value as typeof fontFamily)}><option value="book">Book</option><option value="serif">Serif</option><option value="sans-serif">Sans serif</option></select></label>
@@ -593,7 +625,19 @@ export default function EpubViewer({ documentId, onBackHome, onOpenLibrary, onOp
       {error ? (
         <div style={{ padding: 24, textAlign: "center" }}><p style={{ color: "var(--danger-color)" }}>{error}</p></div>
       ) : (
-        <div className="epub-reader-frame" onWheel={(event) => event.preventDefault()}>
+        <div
+          className="epub-reader-frame"
+          onWheel={(event) => handleWheel(event.nativeEvent)}
+          onTouchStart={(event) => { const touch = event.touches[0]; touchRef.current = touch ? { x: touch.clientX, y: touch.clientY } : null; }}
+          onTouchEnd={(event) => {
+            const start = touchRef.current;
+            const touch = event.changedTouches[0];
+            touchRef.current = null;
+            if (!start || !touch) return;
+            const turn = directionalGestureTurn(start.x - touch.clientX, start.y - touch.clientY, readingDirection, 50);
+            if (turn) turnPage(turn);
+          }}
+        >
           <div ref={frameRef} className="epub-rendition-host" />
           {loading && <div className="epub-loading">Loading EPUB...</div>}
           <div className="epub-ink-layer">

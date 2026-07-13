@@ -51,6 +51,7 @@ export async function createHighlight(options: {
   anchor: unknown;
   color?: HighlightColor;
   create: (input: unknown) => Promise<{ id: string }>;
+  created?: (annotation: { id: string }) => void;
   remove: (id: string) => Promise<unknown>;
   pushUndo: (item: { label: string; undo: () => Promise<void> }) => void;
   refresh: () => void;
@@ -65,6 +66,7 @@ export async function createHighlight(options: {
     color,
     anchor: options.anchor == null ? null : JSON.stringify(options.anchor),
   });
+  options.created?.(annotation);
   options.pushUndo({ label: "highlight", undo: async () => { await options.remove(annotation.id); } });
   options.refresh();
 }

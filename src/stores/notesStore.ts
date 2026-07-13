@@ -20,6 +20,7 @@ interface NotesState {
   isLoading: boolean;
   loadAnnotations: (documentId: string, pageNumber?: number) => Promise<void>;
   deleteAnnotation: (id: string) => Promise<void>;
+  addAnnotation: (annotation: Annotation) => void;
 }
 
 const annotationLoads = new Map<string, Promise<void>>();
@@ -59,4 +60,7 @@ export const useNotesStore = create<NotesState>((set) => ({
       annotations: state.annotations.filter((a) => a.id !== id),
     }));
   },
+  addAnnotation: (annotation) => set((state) => ({
+    annotations: state.annotations.some((item) => item.id === annotation.id) ? state.annotations : [annotation, ...state.annotations],
+  })),
 }));
