@@ -2,7 +2,7 @@
 
 **A local-first AI reader for serious PDFs and EPUBs.**
 
-RustyBooks keeps your library, reading state, notes, OCR, and AI context on your machine. Ask about a page, a selected passage, an explicit page range, or a table-of-contents chapter without uploading the document.
+RustyBooks keeps your documents, library, reading state, notes, and extracted text on your machine. AI requests send bounded text context—not the document file—to the provider you configure. Use LM Studio or Ollama to keep those requests on your device.
 
 <p>
   <img alt="RustyBooks library" src="docs/screenshots/rustybooks-library.png" width="100%">
@@ -19,7 +19,7 @@ RustyBooks keeps your library, reading state, notes, OCR, and AI context on your
 | Local-first library | PDFs, EPUBs, notes, sessions, and reading progress stay on your device. |
 | Context-aware AI | Ask about the current page, selected text, ranges, or TOC chapters. |
 | Clickable citations | AI answers cite pages like `[p.12]`, and links jump back into the reader. |
-| Bring your own model | Use OpenAI, LM Studio, Ollama, or any OpenAI-compatible endpoint. |
+| Bring your own model | Use OpenAI-compatible APIs, Anthropic, LM Studio, or Ollama. |
 | Built for long documents | Native TOC, page ranges, EPUB progress, OCR fallback, and reading stats. |
 
 ## Release
@@ -41,15 +41,22 @@ npm run tauri build
 
 ## AI Setup
 
-Open **Settings** in the app and point it at any OpenAI-compatible API:
+Open **Settings**, choose a provider, and enter the model you want to use:
 
-| Field | Example |
-|---|---|
-| Base URL | `http://localhost:1234/v1` |
-| API key | (your key, or leave blank for local models) |
-| Model | `gpt-4o-mini` / `llama-3.2` / any |
+| Provider | Default base URL | API key |
+|---|---|---|
+| OpenAI-compatible | `https://api.openai.com/v1` | Required for cloud services |
+| Anthropic | `https://api.anthropic.com/v1` | Required |
+| LM Studio | `http://localhost:1234/v1` | Optional |
+| Ollama | `http://localhost:11434/v1` | Optional |
 
-Local models (LM Studio, Ollama) work with zero configuration beyond the URL.
+Provider endpoints and model names remain configurable, including for self-hosted services.
+
+## Privacy and Data Handling
+
+RustyBooks has no account system, advertising, or built-in telemetry service. Your source files and local library database stay on your device. When you use a cloud AI provider, RustyBooks sends the prompt plus the bounded text context needed for that request to the endpoint you configured; that provider's terms and retention policy apply.
+
+Provider API keys are stored in the operating system's secure credential store and are excluded from exported database backups. See [Privacy and Data Handling](PRIVACY.md) for the complete data flow and deletion details.
 
 ## Keyboard Shortcuts
 
@@ -69,7 +76,7 @@ Local models (LM Studio, Ollama) work with zero configuration beyond the URL.
 | Frontend | React 18, TypeScript, Vite |
 | PDF | PDF.js v4 |
 | State | Zustand |
-| Storage | SQLite (local, never leaves your machine) |
-| AI | OpenAI-compatible HTTP |
+| Storage | Local SQLite plus the operating system's secure credential store |
+| AI | OpenAI-compatible and Anthropic HTTP APIs, including local endpoints |
 
 See [design notes](docs/superpowers/ai_native_pdf_reader_design_v0.5_agent_ready.md) for the full background.
