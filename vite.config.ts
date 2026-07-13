@@ -24,12 +24,14 @@ export default defineConfig(async () => ({
   build: {
     sourcemap: false,
     chunkSizeWarningLimit: 2000,
-    rollupOptions: {
+    rolldownOptions: {
       output: {
-        manualChunks: {
-          pdfjs: ["pdfjs-dist"],
-          epub: ["epubjs"],
-          vendor: ["react", "react-dom", "zustand"],
+        codeSplitting: {
+          groups: [
+            { name: "pdfjs", test: /node_modules\/pdfjs-dist\// },
+            { name: "epub", test: /node_modules\/epubjs\// },
+            { name: "vendor", test: /node_modules\/(?:react|react-dom|zustand)\// },
+          ],
         },
       },
     },
