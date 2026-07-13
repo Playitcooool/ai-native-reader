@@ -152,7 +152,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       invoke("mark_document_opened", { documentId: doc.id }).catch(() => {});
       // EPUBs from bulk import may not have content extracted yet
       if (doc.document_type === 'epub' && doc.parse_status !== 'ready') {
-        invoke("extract_epub_content", { documentId: doc.id, filePath: doc.file_path })
+        invoke("extract_epub_content", { documentId: doc.id })
           .then(() => invoke<Document | null>("get_document", { documentId: doc.id }))
           .then((updated) => { if (updated) set((s) => ({
             currentDocument: updated,
@@ -162,9 +162,8 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       }
       // Refresh metadata for PDFs that were imported without extraction
       if (doc.document_type === 'pdf' && (!doc.author || !doc.title || doc.title === doc.original_filename)) {
-        invoke<Document>("refresh_document_metadata", {
-          documentId: doc.id, filePath: doc.file_path, documentType: doc.document_type,
-        }).then((updated) => set({ currentDocument: updated })).catch(() => {});
+        invoke<Document>("refresh_document_metadata", { documentId: doc.id })
+          .then((updated) => set({ currentDocument: updated })).catch(() => {});
       }
     } else {
       get().stopHeartbeat();
@@ -250,9 +249,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       set({ documents: docs, collections, documentCollections, isLoading: false });
       // Background-refresh metadata for documents that need it
       for (const doc of documentsNeedingMetadataRefresh(docs)) {
-        invoke<Document>("refresh_document_metadata", {
-          documentId: doc.id, filePath: doc.file_path, documentType: doc.document_type,
-        }).then((updated) => {
+        invoke<Document>("refresh_document_metadata", { documentId: doc.id }).then((updated) => {
           set((s) => ({ documents: s.documents.map((d) => d.id === updated.id ? updated : d) }));
         }).catch(() => {});
       }

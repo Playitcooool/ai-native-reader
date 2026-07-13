@@ -295,22 +295,9 @@ function BookCover({ doc }: { doc: Document }) {
 }
 
 async function renderCover(documentId: string, docType: string): Promise<string | null> {
-  // Check disk cache first
-  try {
-    const cached = await invoke<number[] | null>("get_cached_cover", { documentId });
-    if (cached && cached.length > 0) {
-      return URL.createObjectURL(new Blob([new Uint8Array(cached)]));
-    }
-  } catch { /* no cached cover */ }
-
   if (docType === 'epub') {
     try {
-      const docs = useDocumentStore.getState().documents;
-      const doc = docs.find(d => d.id === documentId);
-      if (!doc) return null;
-      const cover = await invoke<number[] | null>("get_document_cover", {
-        documentId, filePath: doc.file_path, documentType: docType,
-      });
+      const cover = await invoke<number[] | null>("get_document_cover", { documentId });
       if (!cover) return null;
       return URL.createObjectURL(new Blob([new Uint8Array(cover)]));
     } catch { return null; }

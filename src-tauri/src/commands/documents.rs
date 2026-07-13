@@ -19,10 +19,12 @@ fn validate_document_size_value(size: u64) -> Result<(), String> {
 }
 
 pub(crate) fn validate_document_size(file_path: &str) -> Result<(), String> {
-    let size = std::fs::metadata(file_path)
-        .map_err(|e| format!("Failed to inspect document: {}", e))?
-        .len();
-    validate_document_size_value(size)
+    let metadata =
+        std::fs::metadata(file_path).map_err(|e| format!("Failed to inspect document: {}", e))?;
+    if !metadata.is_file() {
+        return Err("Selected document is not a file.".into());
+    }
+    validate_document_size_value(metadata.len())
 }
 
 #[tauri::command]
@@ -41,7 +43,7 @@ pub fn import_document(db: State<DbState>, file_path: String) -> Result<Document
             "pdf" => "pdf".to_string(),
             _ => "unsupported".to_string(),
         })
-        .unwrap_or_else(|| "pdf".to_string());
+        .unwrap_or_else(|| "unsupported".to_string());
     if doc_type == "unsupported" {
         return Err("Only PDF and EPUB documents can be imported.".into());
     }
@@ -252,25 +254,26 @@ pub fn update_page_count(
 pub fn refresh_document_metadata(
     db: State<DbState>,
     document_id: String,
-    file_path: String,
-    document_type: String,
 ) -> Result<Document, String> {
-    let access_bookmark: Option<Vec<u8>> = {
+    let (file_path, access_bookmark, document_type): (String, Option<Vec<u8>>, String) = {
         let conn = db.0.lock().map_err(|e| e.to_string())?;
         conn.query_row(
-            "SELECT access_bookmark FROM documents WHERE id = ?1",
+            "SELECT file_path, access_bookmark, document_type FROM documents WHERE id = ?1",
             rusqlite::params![document_id],
-            |row| row.get(0),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
-        .ok()
+        .map_err(|e| match e {
+            rusqlite::Error::QueryReturnedNoRows => "Document not found".to_string(),
+            _ => e.to_string(),
+        })?
     };
-    let (meta_title, meta_author) = if document_type == "pdf" {
+    if document_type != "pdf" {
+        return Err("Metadata refresh only supports PDF documents.".into());
+    }
+    let (meta_title, meta_author) =
         crate::file_access::with_access(&file_path, access_bookmark.as_deref(), || {
             Ok(crate::pdf::extract_metadata(&file_path))
-        })?
-    } else {
-        (None, None)
-    };
+        })?;
 
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     if meta_title.is_some() || meta_author.is_some() {
@@ -508,6 +511,7 @@ mod tests {
     fn rejects_oversized_documents() {
         assert!(validate_document_size_value(MAX_DOCUMENT_BYTES).is_ok());
         assert!(validate_document_size_value(MAX_DOCUMENT_BYTES + 1).is_err());
+        assert!(validate_document_size(std::env::temp_dir().to_str().unwrap()).is_err());
     }
 
     #[test]

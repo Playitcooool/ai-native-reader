@@ -182,8 +182,6 @@ pub fn run() {
             commands::stats::get_reading_stats,
             commands::epub::extract_epub_content,
             commands::epub::get_document_cover,
-            commands::epub::get_cached_cover,
-            commands::epub::cache_cover,
             commands::links::open_external_url,
             commands::translate::translate_text,
         ])
