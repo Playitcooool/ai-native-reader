@@ -101,8 +101,29 @@ fn backup_database_for_conn(
         }
     }
     conn.execute("VACUUM main INTO ?1", [destination_path])
-        .map(|_| ())
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+
+    let redaction = (|| {
+        let backup = rusqlite::Connection::open(destination).map_err(|e| e.to_string())?;
+        let has_provider_settings: bool = backup
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'provider_settings')",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        if has_provider_settings {
+            backup
+                .execute("UPDATE provider_settings SET api_key = NULL", [])
+                .map_err(|e| e.to_string())?;
+        }
+        Ok::<(), String>(())
+    })();
+    if let Err(error) = redaction {
+        let _ = std::fs::remove_file(destination);
+        return Err(format!("Failed to remove API keys from backup: {error}"));
+    }
+    Ok(())
 }
 
 fn validate_backup_source(conn: &rusqlite::Connection) -> Result<(), String> {
@@ -342,8 +363,18 @@ mod tests {
         let conn = rusqlite::Connection::open_in_memory().unwrap();
         conn.execute("CREATE TABLE documents (id TEXT PRIMARY KEY)", [])
             .unwrap();
+        conn.execute(
+            "CREATE TABLE provider_settings (id TEXT PRIMARY KEY, api_key TEXT)",
+            [],
+        )
+        .unwrap();
         conn.execute("INSERT INTO documents (id) VALUES ('doc1')", [])
             .unwrap();
+        conn.execute(
+            "INSERT INTO provider_settings (id, api_key) VALUES ('p1', 'must-not-export')",
+            [],
+        )
+        .unwrap();
 
         let path =
             std::env::temp_dir().join(format!("rustybooks-backup-test-{}.db", std::process::id()));
@@ -354,8 +385,16 @@ mod tests {
         let count: i64 = backup
             .query_row("SELECT COUNT(*) FROM documents", [], |row| row.get(0))
             .unwrap();
+        let api_key: Option<String> = backup
+            .query_row(
+                "SELECT api_key FROM provider_settings WHERE id = 'p1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
         fs::remove_file(path).unwrap();
         assert_eq!(count, 1);
+        assert!(api_key.is_none());
     }
 
     #[test]

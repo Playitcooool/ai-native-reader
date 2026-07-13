@@ -442,7 +442,7 @@ export default function SettingsPanel() {
 
         <section className="settings-form-section" hidden={section !== "data"}>
           <h3>Data</h3>
-          <p className="settings-muted">Export a local SQLite backup of your library, notes, AI history, reading state, and saved provider settings.</p>
+          <p className="settings-muted">Export a local SQLite backup of your library, notes, AI history, reading state, and provider settings. API keys stay in your operating system's secure storage and are not included.</p>
           <button type="button" className="settings-primary-button" onClick={handleExportBackup} disabled={exportingBackup}>
             {exportingBackup ? "Exporting..." : "Export Backup"}
           </button>
