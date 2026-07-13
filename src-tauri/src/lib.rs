@@ -49,6 +49,9 @@ pub fn run() {
             let db_path = app_dir.join("reader.db");
             let conn = db::migrations::initialize_database(&db_path)
                 .expect("failed to initialize database");
+            if let Err(e) = secrets::migrate_provider_api_keys(&conn) {
+                eprintln!("Warning: failed to migrate legacy provider API keys: {e}");
+            }
             app.manage(DbState(Mutex::new(conn)));
             app.manage(commands::ai::AiCancelState(Mutex::new(HashSet::new())));
             app.manage(

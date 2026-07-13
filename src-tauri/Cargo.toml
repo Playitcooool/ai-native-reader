@@ -4,6 +4,7 @@ version = "0.2.54"
 description = "RustyBooks"
 authors = ["wei"]
 edition = "2021"
+rust-version = "1.88"
 
 [lib]
 name = "ai_native_reader_lib"
@@ -29,11 +30,11 @@ epub = "2.1"
 lopdf = "0.34"
 scraper = "0.18"
 leptess = "0.14"
+keyring = "4.1.4"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 core-foundation = "0.10"
 core-foundation-sys = "0.8"
-security-framework = "3.7"
 
 [profile.release]
 lto = true
